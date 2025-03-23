@@ -6,6 +6,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.MutableCallSite;
+import java.lang.invoke.TypeDescriptor;
 
 import static java.lang.invoke.MethodHandles.dropArguments;
 import static java.lang.invoke.MethodHandles.foldArguments;
@@ -164,7 +165,7 @@ public final class RT {
     var target = MethodHandles.insertArguments(mh, 0, args);
     return new JSFunction(name, target);
   }
-  public static CallSite bsm_fndecl(MethodHandles.Lookup lookup, String debugName, MethodType type, int funId) {
+  public static Object bsm_fndecl(MethodHandles.Lookup lookup, String debugName, TypeDescriptor typeDescriptor, int funId) {
     var classLoader = (FunctionClassLoader) lookup.lookupClass().getClassLoader();
     var global = classLoader.global();
     var fnInfo = classLoader.dict().decodeFnInfo(funId);
@@ -172,22 +173,23 @@ public final class RT {
     var parameters = fnInfo.parameters();
     var body = fnInfo.body();
     var dataMap = fnInfo.dataMap();
-    var captureCount = type.parameterCount();
-    if (captureCount != 0) {  // capture values ?
+
+    // Is it an invokedynamic with captured arguments ?
+    if (typeDescriptor instanceof MethodType type) {
       // direct allocation
+      var captureCount = type.parameterCount();
       var mh = CodeGen.createFunctionMH(name, parameters, body, captureCount, dataMap, global);
       var target = insertArguments(BIND_FUNCTION, 0, fnInfo.name(), mh);
       target = target.withVarargs(true).asType(type);
       return new ConstantCallSite(target);
     }
-    // lazy allocation + constant
+
+    // it's a constant dynamic => lazy allocation
     var jsFunction = new JSFunction(name, new JSFunction.FunctionData(parameters, body, 0, dataMap, global));
-    if (fnInfo.toplevel()) {  // register to global and do nothing
+    if (fnInfo.toplevel()) {  // register to global
       global.register(jsFunction.name(), jsFunction);
-      return new ConstantCallSite(MethodHandles.empty(type));
     }
-    var target = MethodHandles.constant(Object.class, jsFunction);
-    return new ConstantCallSite(target);
+    return jsFunction;
   }
 
   public static CallSite bsm_register(MethodHandles.Lookup lookup, String debugName, MethodType type, String functionName) {

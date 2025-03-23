@@ -84,6 +84,7 @@ import java.lang.invoke.CallSite;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.invoke.TypeDescriptor;
 import java.util.HashMap;
 import java.util.List;
 
@@ -200,6 +201,11 @@ final class CodeGen {
 
     private void visitVar(ISwc4jAst ast, VarContext ctx) {
       switch (ast) {
+        case Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstBool _, Swc4jAstNull _,
+             Swc4jAstNumber _, Swc4jAstObjectLit _, Swc4jAstRegex _, Swc4jAstStr _,
+             Swc4jAstEmptyStmt _ -> {
+          // literal, do nothing
+        }
         case ISwc4jAstProgram<?> program -> {
           for (var node : program.getBody()) {
             if (node instanceof Swc4jAstFnDecl) {
@@ -215,11 +221,6 @@ final class CodeGen {
             visitVar(stmt, newCtx);
           }
         }
-        case Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstBool _, Swc4jAstNull _,
-             Swc4jAstNumber _, Swc4jAstObjectLit _, Swc4jAstRegex _, Swc4jAstStr _,
-             Swc4jAstEmptyStmt _ -> {
-          // do nothing
-        }
         case Swc4jAstExprStmt exprStmt -> {
           visitVar(exprStmt.getExpr(), ctx);
         }
@@ -228,6 +229,10 @@ final class CodeGen {
             throw new UnsupportedOperationException("spread are not supported");
           }
           visitVar(exprOrSpread.getExpr(), ctx);
+        }
+        case Swc4jAstReturnStmt returnStmt -> {
+          var argOpt = returnStmt.getArg();
+          argOpt.ifPresent(arg -> visitVar(arg, ctx));
         }
         case Swc4jAstFnDecl fnDecl -> {
           // only non-toplevel function are visited
@@ -248,30 +253,6 @@ final class CodeGen {
           parameters.forEach(newCtx::varDef);
           visitVar(body, newCtx);
           registerCaptureInfo(fnDecl.getFunction(), newCtx.captureInfo);
-        }
-        case Swc4jAstReturnStmt returnStmt -> {
-          var argOpt = returnStmt.getArg();
-          argOpt.ifPresent(arg -> visitVar(arg, ctx));
-        }
-        case Swc4jAstVarDecl varDecl -> {
-          switch (varDecl.getKind()) {
-            case Var -> throw new UnsupportedOperationException("declaration using var is not supported");
-            case Const, Let -> {
-            }
-          }
-          for (var varDeclarator : varDecl.getDecls()) {
-            visitVar(varDeclarator, ctx);
-          }
-        }
-        case Swc4jAstVarDeclarator varDeclarator -> {
-          var initOpt = varDeclarator.getInit();
-          initOpt.ifPresent(init -> visitVar(init, ctx));
-          var name = name(varDeclarator.getName());
-          var index = ctx.varDef(name);
-          if (index == -1) {
-            throw new Failure("variable " + name + " already defined");
-          }
-          registerVarData(varDeclarator, new VarData.Local(index, ctx.captureInfo));
         }
         case Swc4jAstArrowExpr arrowExpr -> {
           checkFunctionSupported(arrowExpr);
@@ -299,6 +280,26 @@ final class CodeGen {
         }
         case Swc4jAstFunction _ -> {
           throw new AssertionError();
+        }
+        case Swc4jAstVarDecl varDecl -> {
+          switch (varDecl.getKind()) {
+            case Var -> throw new UnsupportedOperationException("declaration using var is not supported");
+            case Const, Let -> {
+            }
+          }
+          for (var varDeclarator : varDecl.getDecls()) {
+            visitVar(varDeclarator, ctx);
+          }
+        }
+        case Swc4jAstVarDeclarator varDeclarator -> {
+          var initOpt = varDeclarator.getInit();
+          initOpt.ifPresent(init -> visitVar(init, ctx));
+          var name = name(varDeclarator.getName());
+          var index = ctx.varDef(name);
+          if (index == -1) {
+            throw new Failure("variable " + name + " already defined");
+          }
+          registerVarData(varDeclarator, new VarData.Local(index, ctx.captureInfo));
         }
         case Swc4jAstAssignExpr assignExpr -> {
           visitVar(assignExpr.getRight(), ctx);
@@ -378,7 +379,7 @@ final class CodeGen {
   private static final String RT_NAME = RT.class.getName().replace('.', '/');
   private static final Handle BSM_UNDEFINED = bsm("bsm_undefined", Object.class, MethodHandles.Lookup.class, String.class, Class.class);
   private static final Handle BSM_CONST = bsm("bsm_const", Object.class, MethodHandles.Lookup.class, String.class, Class.class, Object.class);
-  private static final Handle BSM_FNDECL = bsm("bsm_fndecl", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class);
+  private static final Handle BSM_FNDECL = bsm("bsm_fndecl", Object.class, MethodHandles.Lookup.class, String.class, TypeDescriptor.class, int.class);
   private static final Handle BSM_LOOKUP = bsm("bsm_lookup", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
   private static final Handle BSM_CALL = bsm("bsm_call", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class);
   private static final Handle BSM_BUILTIN = bsm("bsm_builtin", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
@@ -408,11 +409,25 @@ final class CodeGen {
     return captureInfo;
   }
 
-  private void visitLine(ISwc4jAst node) {
+  private void emitLine(ISwc4jAst node) {
     var label = new Label();
     var line = node.getSpan().getLine();
     mv.visitLabel(label);
     mv.visitLineNumber(line, label);
+  }
+
+  private void emitFonctionCreation(String name, List<String> parameters, ISwc4jAst body, boolean toplevel, List<Integer> captures) {
+    var functionInfo = new Dict.FnInfo(toplevel, name, parameters, body, toplevel ? null : dataMap);
+    var fnInfoId = dict.encodeFnInfo(functionInfo);
+    if (captures.isEmpty()) {
+      mv.visitLdcInsn(new ConstantDynamic(name, "Ljava/lang/Object;", BSM_FNDECL, fnInfoId));
+    } else {
+      for(var varIndex : captures) {
+        mv.visitVarInsn(ALOAD, varIndex);
+      }
+      var desc = "(" + "Ljava/lang/Object;".repeat(captures.size()) + ")Ljava/lang/Object;";
+      mv.visitInvokeDynamicInsn(name, desc, BSM_FNDECL, fnInfoId);
+    }
   }
 
   CodeGen(MethodVisitor mv, Dict dict, HashMap<ISwc4jAst, Object> dataMap) {
@@ -423,24 +438,38 @@ final class CodeGen {
 
   public void visit(ISwc4jAst ast) {
     switch (ast) {
+      case Swc4jAstBool bool -> {
+        mv.visitLdcInsn(new ConstantDynamic("bool", "Ljava/lang/Object;", BSM_CONST, bool.isValue()));
+      }
+      case Swc4jAstNull _null -> {
+        mv.visitInsn(ACONST_NULL);
+      }
+      case Swc4jAstNumber number -> {
+        var raw = number.getRaw().orElseThrow();
+        var value = raw.contains(".") ? (Object) Double.parseDouble(raw) : (Object) Integer.parseInt(raw);
+        mv.visitLdcInsn(new ConstantDynamic("number", "Ljava/lang/Object;", BSM_CONST, value));
+      }
+      case Swc4jAstStr str -> {
+        mv.visitLdcInsn(str.asString());
+      }
       case ISwc4jAstProgram<?> program -> {
         var body = program.getBody();
         var partition = body.stream()
             .collect(partitioningBy(node -> node instanceof Swc4jAstFnDecl));
         // first, visit function declaration
         for(var fnDecl : partition.get(true)) {
-          visitLine(fnDecl);
+          emitLine(fnDecl);
           visit(fnDecl);
         }
         // then visit all other nodes
         for(var node : partition.get(false)) {
-          visitLine(node);
+          emitLine(node);
           visit(node);
         }
       }
       case Swc4jAstBlockStmt blockStmt -> {
         for(var stmt : blockStmt.getStmts()) {
-          visitLine(stmt);
+          emitLine(stmt);
           visit(stmt);
         }
       }
@@ -457,27 +486,6 @@ final class CodeGen {
         }
         visit(exprOrSpread.getExpr());
       }
-      case Swc4jAstFnDecl fnDecl -> {
-        var name = fnDecl.getIdent().getSym();
-        var parameters = fnDecl.getFunction().getParams().stream()
-            .map(CodeGen::name)
-            .toList();
-        var body = fnDecl.getFunction().getBody().orElseThrow();  // FIXME ?
-        var toplevel = !dataMap.containsKey(fnDecl.getFunction());
-        var functionInfo = new Dict.FnInfo(toplevel, name, parameters, body, toplevel ? null : dataMap);
-        var captures = toplevel ? List.<Integer>of() : captureInfo(fnDecl.getFunction()).captures();
-        for(var varIndex : captures) {
-          mv.visitVarInsn(ALOAD, varIndex);
-        }
-        var desc = "(" + "Ljava/lang/Object;".repeat(captures.size()) + ")Ljava/lang/Object;";
-        mv.visitInvokeDynamicInsn(name, desc, BSM_FNDECL, dict.encodeFnInfo(functionInfo));
-        if (toplevel) {
-          mv.visitInsn(POP);
-        } else {
-          var varIndex = varIndex(fnDecl);
-          mv.visitVarInsn(ASTORE, varIndex);
-        }
-      }
       case Swc4jAstReturnStmt returnStmt -> {
         var argOpt = returnStmt.getArg();
         argOpt.ifPresentOrElse(
@@ -485,19 +493,45 @@ final class CodeGen {
             () -> ldcUndefined(mv));
         mv.visitInsn(ARETURN);
       }
-      case Swc4jAstBool bool -> {
-        mv.visitLdcInsn(new ConstantDynamic("bool", "Ljava/lang/Object;", BSM_CONST, bool.isValue()));
+      case Swc4jAstFnDecl fnDecl -> {
+        var name = fnDecl.getIdent().getSym();
+        var parameters = fnDecl.getFunction().getParams().stream()
+            .map(CodeGen::name)
+            .toList();
+        var body = fnDecl.getFunction().getBody().orElseThrow();  // FIXME ?
+        var toplevel = !dataMap.containsKey(fnDecl.getFunction());
+        var captures = toplevel ? List.<Integer>of() : captureInfo(fnDecl.getFunction()).captures();
+        emitFonctionCreation(name, parameters, body, toplevel, captures);
+        if (toplevel) {
+          mv.visitInsn(POP);
+        } else {
+          var varIndex = varIndex(fnDecl);
+          mv.visitVarInsn(ASTORE, varIndex);
+        }
       }
-      case Swc4jAstNull _null -> {
-        mv.visitInsn(ACONST_NULL);
+      case Swc4jAstArrowExpr arrowExpr -> {
+        var captures = captureInfo(arrowExpr).captures();
+        var parameters = arrowExpr.getParams().stream()
+            .map(CodeGen::name)
+            .toList();
+        var body = switch (arrowExpr.getBody()) {
+          case Swc4jAstBlockStmt stmt -> stmt;
+          case ISwc4jAstExpr expr -> new Swc4jAstReturnStmt(expr, expr.getSpan());
+          default -> throw new AssertionError();
+        };
+        emitFonctionCreation("anonymous", parameters, body, false, captures);
       }
-      case Swc4jAstNumber number -> {
-        var raw = number.getRaw().orElseThrow();
-        var value = raw.contains(".") ? (Object) Double.parseDouble(raw) : (Object) Integer.parseInt(raw);
-        mv.visitLdcInsn(new ConstantDynamic("number", "Ljava/lang/Object;", BSM_CONST, value));
+      case Swc4jAstFnExpr fnExpr -> {
+        var captures = captureInfo(fnExpr).captures();
+        var name = fnExpr.getIdent().map(Swc4jAstIdent::getSym).orElse("anonymous");
+        var parameters = fnExpr.getFunction().getParams().stream()
+            .map(CodeGen::name)
+            .toList();
+        var body = fnExpr.getFunction().getBody().orElseThrow();  // FIXME ?
+        emitFonctionCreation(name, parameters, body, false, captures);
       }
-      case Swc4jAstStr str -> {
-        mv.visitLdcInsn(str.asString());
+      case Swc4jAstFunction _ -> {
+        throw new AssertionError();
       }
       case Swc4jAstVarDecl varDecl -> {
         switch (varDecl.getKind()) {
@@ -515,43 +549,6 @@ final class CodeGen {
             () -> ldcUndefined(mv));
         var varIndex = varIndex(varDeclarator);
         mv.visitVarInsn(ASTORE, varIndex);
-      }
-      case Swc4jAstArrowExpr arrowExpr -> {
-        var captureInfo = captureInfo(arrowExpr);
-        var parameters = arrowExpr.getParams().stream()
-            .map(CodeGen::name)
-            .toList();
-        var body = switch (arrowExpr.getBody()) {
-          case Swc4jAstBlockStmt stmt -> stmt;
-          case ISwc4jAstExpr expr -> new Swc4jAstReturnStmt(expr, expr.getSpan());
-          default -> throw new AssertionError();
-        };
-        var functionInfo = new Dict.FnInfo(false, "anonymous", parameters, body, dataMap);
-        var captures = captureInfo.captures();
-        for(var varIndex : captures) {
-          mv.visitVarInsn(ALOAD, varIndex);
-        }
-        var desc = "(" + "Ljava/lang/Object;".repeat(captures.size()) + ")Ljava/lang/Object;";
-        mv.visitInvokeDynamicInsn("arrow", desc, BSM_FNDECL, dict.encodeFnInfo(functionInfo));
-
-      }
-      case Swc4jAstFnExpr fnExpr -> {
-        var captureInfo = captureInfo(fnExpr);
-        var name = fnExpr.getIdent().map(Swc4jAstIdent::getSym).orElse("anonymous");
-        var parameters = fnExpr.getFunction().getParams().stream()
-            .map(CodeGen::name)
-            .toList();
-        var body = fnExpr.getFunction().getBody().orElseThrow();  // FIXME ?
-        var functionInfo = new Dict.FnInfo(false, name, parameters, body, dataMap);
-        var captures = captureInfo.captures();
-        for(var varIndex : captures) {
-          mv.visitVarInsn(ALOAD, varIndex);
-        }
-        var desc = "(" + "Ljava/lang/Object;".repeat(captures.size()) + ")Ljava/lang/Object;";
-        mv.visitInvokeDynamicInsn("function", desc, BSM_FNDECL, dict.encodeFnInfo(functionInfo));
-      }
-      case Swc4jAstFunction _ -> {
-        throw new AssertionError();
       }
       case Swc4jAstAssignExpr assignExpr -> {
         visit(assignExpr.getRight());
