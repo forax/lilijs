@@ -217,7 +217,7 @@ public class ControlFlowTest {
         """));
   }
 
-  @Test @Disabled  // FIXME
+  @Test
   public void testForLoopWithNumbers() {
     assertEquals("0\n1\n2\n3\n4\n", execute("""
         for (let i = 0; i < 5; i = i + 1) {
@@ -226,13 +226,82 @@ public class ControlFlowTest {
         """));
   }
 
-  @Test @Disabled
-  public void testForLoopWithStrings() {
-    assertEquals("H\ne\nl\nl\no\n", execute("""
-        let text = "Hello";
-        for (let i = 0; i < text.length; i = i + 1) {
-            print(text.charAt(i));
+  @Test
+  public void testForLoopNoInitWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        let i = 0;
+        for (; i < 5; i = i + 1) {
+            print(i);
         }
+        """));
+  }
+
+  @Test
+  public void testForLoopNoUpdateWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        for (let i = 0; i < 5;) {
+            print(i);
+            i = i + 1;
+        }
+        """));
+  }
+
+  @Test
+  public void testForLoopNoTestWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        for (let i = 0; ;i = i + 1) {
+            if (i === 5) {
+                return;
+            }
+            print(i);
+        }
+        """));
+  }
+
+  @Test
+  public void testForLoopOnlyInitWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        for (let i = 0; ;) {
+            if (i === 5) {
+               return;
+            }
+            print(i);
+            i = i + 1;
+        }
+        """));
+  }
+
+  @Test
+  public void testForLoopOnlyTestWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        let i = 0;
+        for (; i < 5;) {
+            print(i);
+            i = i + 1;
+        }
+        """));
+  }
+
+  @Test
+  public void testForLoopOnlyUpdateWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        let i = 0;
+        for (; ; i = i + 1) {
+            if (i === 5) {
+                return;
+            }
+            print(i);}
+        """));
+  }
+
+  @Test
+  public void testForEverWithNumbers() {
+    assertEquals("start\n", execute("""
+        print("start");
+        for(;;) {
+          return;
+        }
+        print("end");
         """));
   }
 
