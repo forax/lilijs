@@ -372,9 +372,13 @@ final class CodeGen {
           var newCtx = ctx.newLocalContext();
           visitVar(whileStmt.getBody(), newCtx);
         }
+        case Swc4jAstDoWhileStmt doWhileStmt -> {
+          var newCtx = ctx.newLocalContext();
+          visitVar(doWhileStmt.getBody(), newCtx);
+          visitVar(doWhileStmt.getTest(), ctx);
+        }
         case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
              Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
-             Swc4jAstDoWhileStmt _,
              Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _,
              Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
@@ -680,9 +684,16 @@ final class CodeGen {
         mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
         mv.visitJumpInsn(IFNE, startLabel);
       }
+      case Swc4jAstDoWhileStmt doWhileStmt -> {
+        var startLabel = new Label();
+        mv.visitLabel(startLabel);
+        visit(doWhileStmt.getBody());
+        visit(doWhileStmt.getTest());
+        mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
+        mv.visitJumpInsn(IFNE, startLabel);
+      }
       case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
            Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
-           Swc4jAstDoWhileStmt _,
            Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _,
            Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,

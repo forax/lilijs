@@ -184,7 +184,18 @@ public class ControlFlowTest {
         """));
   }
 
-  @Test @Disabled  // FIXME
+  @Test
+  public void testWhileLoopWithBoolean() {
+    assertEquals("end\n", execute("""
+        let v = false;
+        while (v) {
+            print("oops");
+        }
+        print("end");
+        """));
+  }
+
+  @Test
   public void testDoWhileLoopWithNumbers() {
     assertEquals("5\n", execute("""
         let i = 5;
@@ -195,7 +206,7 @@ public class ControlFlowTest {
         """));
   }
 
-  @Test @Disabled  // FIXME
+  @Test
   public void testDoWhileLoopWithBooleans() {
     assertEquals("Starting loop\nEnding loop\n", execute("""
         let flag = false;
