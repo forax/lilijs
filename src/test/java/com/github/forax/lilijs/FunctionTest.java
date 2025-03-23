@@ -280,7 +280,7 @@ public class FunctionTest {
 
   @Test  // updating closure variable is not allowed => memory leaks
   public void testClosureCapturedVariableUpdateNotSupported() {
-    assertThrows(Failure.class, () -> execute("""
+    assertThrows(UnsupportedOperationException.class, () -> execute("""
         function createCounter(initial) {
             let count = initial;
             return function() {
@@ -395,7 +395,7 @@ public class FunctionTest {
 
   @Test
   public void testGeneratorExprFunctionNotSupported() {
-    assertThrows(Failure.class, () -> execute("""
+    assertThrows(UnsupportedOperationException.class, () -> execute("""
         let f = function* numberGenerator() {
             yield 1;
             yield 2;
@@ -406,7 +406,7 @@ public class FunctionTest {
 
   @Test @Disabled  //FIXME investigate
   public void testAsyncFunctionNotSupported() {
-    assertThrows(Failure.class, () -> execute("""
+    assertThrows(UnsupportedOperationException.class, () -> execute("""
         async function asyncTest() {
             return "Success";
         }
@@ -415,7 +415,7 @@ public class FunctionTest {
 
   @Test
   public void testAsyncExprFunctionNotSupported() {
-    assertThrows(Failure.class, () -> execute("""
+    assertThrows(UnsupportedOperationException.class, () -> execute("""
         let f = async function () {
             return "Success";
         };
@@ -424,7 +424,7 @@ public class FunctionTest {
 
   @Test
   public void testAsyncArrowFunctionNotSupported() {
-    assertThrows(Failure.class, () -> execute("""
+    assertThrows(UnsupportedOperationException.class, () -> execute("""
         let f = async () => "Success";
         """));
   }

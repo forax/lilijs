@@ -172,18 +172,18 @@ final class CodeGen {
 
   private static void checkFunctionSupported(Swc4jAstFunction function) {
     if (function.isGenerator()) {
-      throw new Failure("generator function not supported");
+      throw new UnsupportedOperationException("generator function not supported");
     }
     if (function.isAsync()) {
-      throw new Failure("async function not supported");
+      throw new UnsupportedOperationException("async function not supported");
     }
   }
   private static void checkFunctionSupported(Swc4jAstArrowExpr arrowExpr) {
     if (arrowExpr.isGenerator()) {
-      throw new Failure("generator arrow function not supported");
+      throw new UnsupportedOperationException("generator arrow function not supported");
     }
     if (arrowExpr.isAsync()) {
-      throw new Failure("async arrow function not supported");
+      throw new UnsupportedOperationException("async arrow function not supported");
     }
   }
 
@@ -307,7 +307,7 @@ final class CodeGen {
           var varData = ctx.varUse(name);
           switch (varData) {
             case VarData.Local _ -> registerVarData(assignExpr, varData);
-            case VarData.Capture _ -> throw new Failure("can not assign a captured value " + name);
+            case VarData.Capture _ -> throw new UnsupportedOperationException("can not assign a captured value " + name);
             case VarData.Global _ -> throw new Failure("unknown local variable " + name);
           }
         }
@@ -441,7 +441,7 @@ final class CodeGen {
       case Swc4jAstBool bool -> {
         mv.visitLdcInsn(new ConstantDynamic("bool", "Ljava/lang/Object;", BSM_CONST, bool.isValue()));
       }
-      case Swc4jAstNull _null -> {
+      case Swc4jAstNull _ -> {
         mv.visitInsn(ACONST_NULL);
       }
       case Swc4jAstNumber number -> {
@@ -456,7 +456,7 @@ final class CodeGen {
         var body = program.getBody();
         var partition = body.stream()
             .collect(partitioningBy(node -> node instanceof Swc4jAstFnDecl));
-        // first, visit function declaration
+        // first, visit function declarations
         for(var fnDecl : partition.get(true)) {
           emitLine(fnDecl);
           visit(fnDecl);
