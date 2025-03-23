@@ -342,7 +342,7 @@ public class ControlFlowTest {
         """));
   }
 
-  @Test @Disabled
+  @Test @Disabled  // FIXME
   public void testContinueStatementWithStringCondition() {
     assertEquals("apple\ncherry\ndate\n", execute("""
         let fruits = ["apple", "banana", "cherry", "date"];
