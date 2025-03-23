@@ -367,10 +367,15 @@ final class CodeGen {
           visitVar(condExpr.getCons(), ctx);
           visitVar(condExpr.getAlt(), ctx);
         }
+        case Swc4jAstWhileStmt whileStmt -> {
+          visitVar(whileStmt.getTest(), ctx);
+          var newCtx = ctx.newLocalContext();
+          visitVar(whileStmt.getBody(), newCtx);
+        }
         case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
              Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
              Swc4jAstDoWhileStmt _,
-             Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _, Swc4jAstWhileStmt _,
+             Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _,
              Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
              Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
@@ -664,10 +669,21 @@ final class CodeGen {
         visit(condExpr.getAlt());
         mv.visitLabel(endLabel);
       }
+      case Swc4jAstWhileStmt whileStmt -> {
+        var testLabel = new Label();
+        mv.visitJumpInsn(GOTO, testLabel);
+        var startLabel = new Label();
+        mv.visitLabel(startLabel);
+        visit(whileStmt.getBody());
+        mv.visitLabel(testLabel);
+        visit(whileStmt.getTest());
+        mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
+        mv.visitJumpInsn(IFNE, startLabel);
+      }
       case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
            Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
            Swc4jAstDoWhileStmt _,
-           Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _, Swc4jAstWhileStmt _,
+           Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _,
            Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
            Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,

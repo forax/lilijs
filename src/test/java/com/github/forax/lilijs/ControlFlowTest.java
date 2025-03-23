@@ -173,7 +173,7 @@ public class ControlFlowTest {
         """));
   }
 
-  @Test @Disabled  // FIXME
+  @Test
   public void testWhileLoopWithNumbers() {
     assertEquals("0\n1\n2\n3\n4\n", execute("""
         let i = 0;

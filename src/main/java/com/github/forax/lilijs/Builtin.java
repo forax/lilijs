@@ -2,34 +2,49 @@ package com.github.forax.lilijs;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.util.HashMap;
 import java.util.Objects;
 
+import static java.lang.invoke.MethodType.genericMethodType;
+import static java.lang.invoke.MethodType.methodType;
+
 class Builtin {
   private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
-  private static final HashMap<String, MethodHandle> BUILTIN_MAP = new HashMap<>();
-  private static final HashMap<String, MethodHandle> VARIANT_MAP = new HashMap<>();
+  private static final HashMap<String, Stub> BUILTIN_MAP = new HashMap<>();
+  private static final HashMap<String, Stub> VARIANT_MAP = new HashMap<>();
 
-  private static MethodHandle resolveBinaryBuiltin(String builtin, Class<?> returnType, Class<?> type1, Class<?> type2) {
+  public record Stub(boolean generic, MethodHandle mh) {
+    public Stub asType(Class<?>... parameterType) {
+      return new Stub(generic, mh.asType(methodType(mh.type().returnType(), parameterType)));
+    }
+    public Stub asGenericType() {
+      return new Stub(generic, mh.asType(genericMethodType(mh.type().parameterCount())));
+    }
+  }
+
+  private static Stub resolveBinaryBuiltin(String builtin, Class<?> returnType, Class<?> type1, Class<?> type2) {
     var mangled = type1.getName() + "/" + builtin + "/" + type2.getName();
     return BUILTIN_MAP.computeIfAbsent(mangled, _ -> {
+      MethodHandle mh;
       try {
-        return LOOKUP.findStatic(Builtin.class, builtin, MethodType.methodType(returnType, type1, type2));
+        mh = LOOKUP.findStatic(Builtin.class, builtin, methodType(returnType, type1, type2));
       } catch (NoSuchMethodException | IllegalAccessException e) {
         throw new AssertionError(e);
       }
+      return new Stub(type1 == Object.class && type2 == Object.class, mh);
     });
   }
 
-  private static MethodHandle resolveUnaryBuiltin(String builtin, Class<?> returnType, Class<?> type) {
+  private static Stub resolveUnaryBuiltin(String builtin, Class<?> returnType, Class<?> type) {
     var mangled = builtin + "/" + type.getName();
     return BUILTIN_MAP.computeIfAbsent(mangled, _ -> {
+      MethodHandle mh;
       try {
-        return LOOKUP.findStatic(Builtin.class, builtin, MethodType.methodType(returnType, type));
+        mh = LOOKUP.findStatic(Builtin.class, builtin, methodType(returnType, type));
       } catch (NoSuchMethodException | IllegalAccessException e) {
         throw new AssertionError(e);
       }
+      return new Stub(type == Object.class, mh);
     });
   }
 
@@ -152,14 +167,14 @@ class Builtin {
     return !Objects.equals(a, b);
   }
 
-  private static MethodHandle resolveBinaryOpPlus(Class<?> type1, Class<?> type2) {
+  private static Stub resolveBinaryOpPlus(Class<?> type1, Class<?> type2) {
     if (type1 == String.class || type2 == String.class) {
       return resolveBinaryBuiltin("add", String.class,Object.class, Object.class);
     }
     return resolveBinaryNumber("add", type1, type2);
   }
 
-  private static MethodHandle resolveBinaryOpDiv(Class<?> type1, Class<?> type2) {
+  private static Stub resolveBinaryOpDiv(Class<?> type1, Class<?> type2) {
     checkOperandsAreNumbers(type1, type2);
     if (type1 == Double.class || type2 == Double.class) {
       return resolveBinaryBuiltin("div", double.class,double.class, double.class);
@@ -170,7 +185,7 @@ class Builtin {
     throw new Failure(type1.getName() + " div " + type2.getName());
   }
 
-  private static MethodHandle resolveBinaryNumber(String name, Class<?> type1, Class<?> type2) {
+  private static Stub resolveBinaryNumber(String name, Class<?> type1, Class<?> type2) {
     checkOperandsAreNumbers(type1, type2);
     if (type1 == Double.class || type2 == Double.class) {
       return resolveBinaryBuiltin(name, double.class,double.class, double.class);
@@ -181,7 +196,7 @@ class Builtin {
     throw new Failure(type1.getName() + " " + name + " " + type2.getName());
   }
 
-  private static MethodHandle resolveBinaryRelation(String name, Class<?> type1, Class<?> type2) {
+  private static Stub resolveBinaryRelation(String name, Class<?> type1, Class<?> type2) {
     if (type1 == String.class && type2 == String.class) {
       return resolveBinaryBuiltin(name, boolean.class,String.class, String.class);
     }
@@ -195,13 +210,12 @@ class Builtin {
     throw new Failure(type1.getName() + " " + name + " " + type2.getName());
   }
 
-  // FIXME, should fallback to a generic path using Object.equals()
-  private static MethodHandle resolveBinaryEquality(String name, Class<?> type1, Class<?> type2) {
+  private static Stub resolveBinaryEquality(String name, Class<?> type1, Class<?> type2) {
     if ((type1 == Double.class && Number.class.isAssignableFrom(type2)) || (Number.class.isAssignableFrom(type1) && type2 == Double.class)) {
       return resolveBinaryBuiltin(name, boolean.class,double.class, double.class);
     }
     if (type1 != type2) {
-      return MethodHandles.dropArguments(MethodHandles.constant(boolean.class, !name.equals("eq")), 0, type1, type2);
+      return new Stub(false, MethodHandles.dropArguments(MethodHandles.constant(boolean.class, !name.equals("eq")), 0, type1, type2));
     }
     if (type1 == Boolean.class) {
       return resolveBinaryBuiltin(name, boolean.class,boolean.class, boolean.class);
@@ -215,8 +229,8 @@ class Builtin {
     return resolveBinaryBuiltin(name, boolean.class,Object.class, Object.class);
   }
 
-  private static MethodHandle resolveBinaryOp(String opName, Class<?> type1, Class<?> type2) {
-    var mh = switch (opName) {
+  private static Stub resolveBinaryOp(String opName, Class<?> type1, Class<?> type2) {
+    var stub = switch (opName) {
       case "+" -> resolveBinaryOpPlus(type1, type2);
       case "-" -> resolveBinaryNumber("sub", type1, type2);
       case "*" -> resolveBinaryNumber("mul", type1, type2);
@@ -230,7 +244,7 @@ class Builtin {
       case "!==" -> resolveBinaryEquality("ne", type1, type2);
       default -> throw new UnsupportedOperationException(type1.getName() + " " + opName + " " + type2.getName());
     };
-    return mh.asType(MethodType.methodType(mh.type().returnType(), type1, type2));
+    return stub.asType(type1, type2);
   }
 
   private static int plus(int a) {
@@ -246,7 +260,7 @@ class Builtin {
     return - a;
   }
 
-  private static MethodHandle resolveUnaryNumber(String name, Class<?> type) {
+  private static Stub resolveUnaryNumber(String name, Class<?> type) {
     checkOperandIsNumber(type);
     if (type == Double.class) {
       return resolveUnaryBuiltin(name, double.class,double.class);
@@ -257,22 +271,64 @@ class Builtin {
     throw new Failure(name + " " + type.getName());
   }
 
-  private static MethodHandle resolveUnaryOp(String opName, Class<?> type) {
-    var mh = switch (opName) {
+  private static Stub resolveUnaryOp(String opName, Class<?> type) {
+    var stub = switch (opName) {
       case "+" -> resolveUnaryNumber("plus", type);
       case "-" -> resolveUnaryNumber("minus", type);
       default -> throw new UnsupportedOperationException(opName + " " + type.getName());
     };
-    return mh.asType(MethodType.methodType(mh.type().returnType(), type));
+    return stub.asType(type);
   }
 
-  public static MethodHandle resolveBinary(String opName, Class<?> type1, Class<?> type2) {
+  private static boolean truth(int a) {
+    return a != 0;
+  }
+  private static boolean truth(double a) {
+    return a != 0.0;
+  }
+  private static boolean truth(boolean b) {
+    return b;
+  }
+  private static boolean truth(String s) {
+    return !s.isEmpty();
+  }
+  static boolean truth(Object o) {
+    // the first test is not strictly necessary but helps the VM
+    return o != null && o != RT.UNDEFINED &&
+        o instanceof Boolean b ? b :
+          o instanceof Integer v ? v != 0 :
+            o instanceof Double d ? d != 0.0 :
+              o instanceof String s && !s.isEmpty();
+  }
+
+  private static Stub resolveTruthOp(Class<?> type) {
+    if (type == Boolean.class) {
+      return resolveUnaryBuiltin("truth", boolean.class,boolean.class);
+    }
+    if (type == Integer.class) {
+      return resolveUnaryBuiltin("truth", boolean.class,int.class);
+    }
+    if (type == Double.class) {
+      return resolveUnaryBuiltin("truth", boolean.class,double.class);
+    }
+    if (type == String.class) {
+      return resolveUnaryBuiltin("truth", boolean.class,String.class);
+    }
+    return resolveUnaryBuiltin("truth", boolean.class,Object.class);
+  }
+
+  public static Stub resolveBinary(String opName, Class<?> type1, Class<?> type2) {
     var mangled = type1.getName() + opName + type2.getName();
-    return VARIANT_MAP.computeIfAbsent(mangled, _ -> resolveBinaryOp(opName, type1, type2).asType(MethodType.methodType(Object.class, Object.class, Object.class)));
+    return VARIANT_MAP.computeIfAbsent(mangled, _ -> resolveBinaryOp(opName, type1, type2).asGenericType());
   }
 
-  public static MethodHandle resolveUnary(String opName, Class<?> type) {
+  public static Stub resolveUnary(String opName, Class<?> type) {
     var mangled = opName + type.getName();
-    return VARIANT_MAP.computeIfAbsent(mangled, _ -> resolveUnaryOp(opName, type).asType(MethodType.methodType(Object.class, Object.class)));
+    return VARIANT_MAP.computeIfAbsent(mangled, _ -> resolveUnaryOp(opName, type).asGenericType());
+  }
+
+  public static Stub resolveTruth(Class<?> type) {
+    var mangled = "truth/" + type.getName();
+    return VARIANT_MAP.computeIfAbsent(mangled, _ -> resolveTruthOp(type).asType(Object.class));
   }
 }

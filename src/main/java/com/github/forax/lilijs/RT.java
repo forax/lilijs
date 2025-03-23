@@ -8,8 +8,9 @@ import java.lang.invoke.MethodType;
 import java.lang.invoke.MutableCallSite;
 import java.lang.invoke.TypeDescriptor;
 
-import static java.lang.invoke.MethodHandles.dropArguments;
+import static java.lang.invoke.MethodHandles.constant;
 import static java.lang.invoke.MethodHandles.foldArguments;
+import static java.lang.invoke.MethodHandles.guardWithTest;
 import static java.lang.invoke.MethodHandles.insertArguments;
 import static java.lang.invoke.MethodHandles.invoker;
 import static java.lang.invoke.MethodType.methodType;
@@ -28,7 +29,7 @@ public final class RT {
 
   static final Object UNDEFINED = new Undefined();
 
-  private static final MethodHandle LOOKUP, LOOKUP_OR_FAIL, REGISTER, BIND_FUNCTION, INVOKE, TRUTH, LOOKUP_MH;
+  private static final MethodHandle LOOKUP, LOOKUP_OR_FAIL, REGISTER, BIND_FUNCTION, INVOKE, LOOKUP_MH;
 
   static {
     var lookup = MethodHandles.lookup();
@@ -40,8 +41,6 @@ public final class RT {
       BIND_FUNCTION = lookup.findStatic(RT.class, "bindFunction", methodType(Object.class, String.class, MethodHandle.class, Object[].class));
 
       INVOKE = lookup.findVirtual(JSFunction.class, "invoke", methodType(Object.class, Object.class, Object[].class));
-
-      TRUTH = lookup.findStatic(RT.class, "truth", methodType(boolean.class, Object.class));
 
       LOOKUP_MH = lookup.findStatic(RT.class, "lookupMethodHandle", methodType(MethodHandle.class, JSObject.class, String.class));
     } catch (NoSuchMethodException | IllegalAccessException e) {
@@ -75,7 +74,6 @@ public final class RT {
   }
 
   private static final class BinaryBuiltinIC extends MutableCallSite {
-    private static final MethodType GENERIC_TYPE = MethodType.genericMethodType(2);
     private static final MethodHandle SLOW_PATH, CHECK;
     static {
       var lookup = MethodHandles.lookup();
@@ -102,11 +100,11 @@ public final class RT {
 
     @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o1, Object o2) {
-
       var c1 = o1 == null ? Object.class : o1.getClass();
       var c2 = o2 == null ? Object.class : o2.getClass();
-      var mh = Builtin.resolveBinary(opName, c1, c2);
-      if (GENERIC_TYPE.equals(mh.type())) {
+      var stub = Builtin.resolveBinary(opName, c1, c2);
+      var mh = stub.mh();
+      if (stub.generic()) {
         setTarget(mh);
         return mh;
       }
@@ -120,7 +118,6 @@ public final class RT {
   }
 
   private static final class UnaryBuiltinIC extends MutableCallSite {
-    private static final MethodType GENERIC_TYPE = MethodType.genericMethodType(1);
     private static final MethodHandle SLOW_PATH, CHECK;
     static {
       var lookup = MethodHandles.lookup();
@@ -148,8 +145,9 @@ public final class RT {
     @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o) {
       var c = o == null ? Object.class : o.getClass();
-      var mh = Builtin.resolveUnary(opName, c);
-      if (GENERIC_TYPE.equals(mh.type())) {
+      var stub = Builtin.resolveUnary(opName, c);
+      var mh = stub.mh();
+      if (stub.generic()) {
         setTarget(mh);
         return mh;
       }
@@ -214,14 +212,73 @@ public final class RT {
     return new ConstantCallSite(insertArguments(REGISTER, 0, globalEnv, functionName));
   }
 
-  @SuppressWarnings("unused")  // used by a method handle
-  private static boolean truth(Object o) {
-    return /*o != null &&*/ o != UNDEFINED && o instanceof Boolean b ? b : o instanceof Integer v ? v != 0 : o instanceof String s && !s.isEmpty();
-  }
 
   public static CallSite bsm_truth(MethodHandles.Lookup lookup, String debugName, MethodType type) {
-    //throw new UnsupportedOperationException("TODO bsm_truth");
-    return new ConstantCallSite(TRUTH);
+    //return new ConstantCallSite(TRUTH);
+    return new TruthBuiltinIC(type);
+  }
+
+  private static final class TruthBuiltinIC extends MutableCallSite {
+    private static final MethodHandle SLOW_PATH, SECONDARY_SLOW_PATH, FALLBACK, CHECK, CLASS_CHECK;
+    static {
+      var lookup = MethodHandles.lookup();
+      try {
+        SLOW_PATH = lookup.findVirtual(TruthBuiltinIC.class, "slowPath", methodType(boolean.class, Object.class));
+        SECONDARY_SLOW_PATH = lookup.findVirtual(TruthBuiltinIC.class, "secondarySlowPath", methodType(boolean.class, Object.class, Object.class));
+        FALLBACK = lookup.findVirtual(TruthBuiltinIC.class, "fallback", methodType(boolean.class, Object.class));
+        CHECK = lookup.findStatic(TruthBuiltinIC.class, "check", methodType(boolean.class, Object.class, Object.class));
+        CLASS_CHECK = lookup.findStatic(TruthBuiltinIC.class, "classCheck", methodType(boolean.class, Class.class, Object.class));
+      } catch (NoSuchMethodException | IllegalAccessException e) {
+        throw new AssertionError(e);
+      }
+    }
+    public TruthBuiltinIC(MethodType type) {
+      super(type);
+      var fallback = SLOW_PATH.bindTo(this);
+      setTarget(fallback);
+    }
+
+    private static boolean check(Object expected, Object o) {
+      return expected == o;
+    }
+
+    private static boolean classCheck(Class<?> c, Object o) {
+      return o!= null && o.getClass() == c;
+    }
+
+    @SuppressWarnings("unused")  // called by a MH
+    private boolean slowPath(Object o) {
+      var result = Builtin.truth(o);
+      var guard = guardWithTest(CHECK.bindTo(o),
+          MethodHandles.dropArguments(constant(boolean.class, result), 0, Object.class),
+          insertArguments(SECONDARY_SLOW_PATH, 0,this, o));
+      setTarget(guard);
+      return result;
+    }
+
+    private boolean secondarySlowPath(Object previous, Object o) {
+      if (previous == null || o == null) {
+        return fallback(o);
+      }
+      var type = o.getClass();
+      if (previous.getClass() != type) {
+        return fallback(o);
+      }
+      var stub = Builtin.resolveTruth(type);
+      var mh = stub.mh();
+      if (stub.generic()) {
+        setTarget(mh);
+        return Builtin.truth(o);
+      }
+      var guard = guardWithTest(CLASS_CHECK.bindTo(type), mh, FALLBACK.bindTo(this));
+      setTarget(guard);
+      return Builtin.truth(o);
+    }
+
+    private boolean fallback(Object o) {
+      setTarget(Builtin.resolveTruth(Object.class).mh());
+      return Builtin.truth(o);
+    }
   }
 
   public static CallSite bsm_get(MethodHandles.Lookup lookup, String debugName, MethodType type, String fieldName) {
