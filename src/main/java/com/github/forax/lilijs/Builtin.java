@@ -4,6 +4,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.HashMap;
+import java.util.Objects;
 
 class Builtin {
   private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
@@ -38,7 +39,7 @@ class Builtin {
     }
   }
 
-  private static void checkOperandsAreNumber(Class<?> type1, Class<?> type2) {
+  private static void checkOperandsAreNumbers(Class<?> type1, Class<?> type2) {
     if (!(Number.class.isAssignableFrom(type1))) {
       throw new Failure("left operand is not a number");
     }
@@ -133,7 +134,7 @@ class Builtin {
     return a == b;
   }
   private static boolean eq(Object a, Object b) {
-    return a.equals(b);
+    return Objects.equals(a, b);
   }
   private static boolean ne(String a, String b) {
     return !a.equals(b);
@@ -148,7 +149,7 @@ class Builtin {
     return a != b;
   }
   private static boolean ne(Object a, Object b) {
-    return !a.equals(b);
+    return !Objects.equals(a, b);
   }
 
   private static MethodHandle resolveBinaryOpPlus(Class<?> type1, Class<?> type2) {
@@ -159,7 +160,7 @@ class Builtin {
   }
 
   private static MethodHandle resolveBinaryOpDiv(Class<?> type1, Class<?> type2) {
-    checkOperandsAreNumber(type1, type2);
+    checkOperandsAreNumbers(type1, type2);
     if (type1 == Double.class || type2 == Double.class) {
       return resolveBinaryBuiltin("div", double.class,double.class, double.class);
     }
@@ -170,7 +171,7 @@ class Builtin {
   }
 
   private static MethodHandle resolveBinaryNumber(String name, Class<?> type1, Class<?> type2) {
-    checkOperandsAreNumber(type1, type2);
+    checkOperandsAreNumbers(type1, type2);
     if (type1 == Double.class || type2 == Double.class) {
       return resolveBinaryBuiltin(name, double.class,double.class, double.class);
     }
@@ -184,7 +185,7 @@ class Builtin {
     if (type1 == String.class && type2 == String.class) {
       return resolveBinaryBuiltin(name, boolean.class,String.class, String.class);
     }
-    checkOperandsAreNumber(type1, type2);
+    checkOperandsAreNumbers(type1, type2);
     if (type1 == Double.class || type2 == Double.class) {
       return resolveBinaryBuiltin(name, boolean.class,double.class, double.class);
     }

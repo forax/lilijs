@@ -232,7 +232,9 @@ final class CodeGen {
         }
         case Swc4jAstReturnStmt returnStmt -> {
           var argOpt = returnStmt.getArg();
-          argOpt.ifPresent(arg -> visitVar(arg, ctx));
+          if (argOpt.isPresent()) {
+            visitVar(argOpt.orElseThrow(), ctx);
+          }
         }
         case Swc4jAstFnDecl fnDecl -> {
           // only non-toplevel function are visited
@@ -275,7 +277,9 @@ final class CodeGen {
           var newCtx = ctx.newCaptureContext();
           newCtx.varDef("this");
           parameters.forEach(newCtx::varDef);
-          bodyOpt.ifPresent(body -> visitVar(body, newCtx));
+          if (bodyOpt.isPresent()) {
+            visitVar(bodyOpt.orElseThrow(), newCtx);
+          }
           registerCaptureInfo(fnExpr, newCtx.captureInfo);
         }
         case Swc4jAstFunction _ -> {
@@ -293,7 +297,9 @@ final class CodeGen {
         }
         case Swc4jAstVarDeclarator varDeclarator -> {
           var initOpt = varDeclarator.getInit();
-          initOpt.ifPresent(init -> visitVar(init, ctx));
+          if (initOpt.isPresent()) {
+            visitVar(initOpt.orElseThrow(), ctx);
+          }
           var name = name(varDeclarator.getName());
           var index = ctx.varDef(name);
           if (index == -1) {
@@ -348,13 +354,26 @@ final class CodeGen {
           var varData = ctx.varUse("this");  // not needed
           registerVarData(thisExpr, varData);
         }
+        case Swc4jAstIfStmt ifStmt -> {
+          visitVar(ifStmt.getTest(), ctx);
+          visitVar(ifStmt.getCons(), ctx);
+          var altOpt = ifStmt.getAlt();
+          if (altOpt.isPresent()) {
+            visitVar(altOpt.orElseThrow(), ctx);
+          }
+        }
+        case Swc4jAstCondExpr condExpr -> {
+          visitVar(condExpr.getTest(), ctx);
+          visitVar(condExpr.getCons(), ctx);
+          visitVar(condExpr.getAlt(), ctx);
+        }
         case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
              Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
              Swc4jAstDoWhileStmt _,
              Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _, Swc4jAstWhileStmt _,
-             Swc4jAstIfStmt _, Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
+             Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
-             Swc4jAstAwaitExpr _, Swc4jAstClassExpr _, Swc4jAstCondExpr _,
+             Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
              Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
              Swc4jAstSeqExpr _, Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
              Swc4jAstTaggedTpl _, Swc4jAstTpl _, Swc4jAstYieldExpr _ -> {
@@ -378,6 +397,7 @@ final class CodeGen {
 
   private static final String RT_NAME = RT.class.getName().replace('.', '/');
   private static final Handle BSM_UNDEFINED = bsm("bsm_undefined", Object.class, MethodHandles.Lookup.class, String.class, Class.class);
+  private static final Handle BSM_BOOL = bsm("bsm_bool", Object.class, MethodHandles.Lookup.class, String.class, Class.class, Object.class);
   private static final Handle BSM_CONST = bsm("bsm_const", Object.class, MethodHandles.Lookup.class, String.class, Class.class, Object.class);
   private static final Handle BSM_FNDECL = bsm("bsm_fndecl", Object.class, MethodHandles.Lookup.class, String.class, TypeDescriptor.class, int.class);
   private static final Handle BSM_LOOKUP = bsm("bsm_lookup", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
@@ -439,7 +459,7 @@ final class CodeGen {
   public void visit(ISwc4jAst ast) {
     switch (ast) {
       case Swc4jAstBool bool -> {
-        mv.visitLdcInsn(new ConstantDynamic("bool", "Ljava/lang/Object;", BSM_CONST, bool.isValue()));
+        mv.visitLdcInsn(new ConstantDynamic("bool", "Ljava/lang/Object;", BSM_BOOL, bool.isValue()));
       }
       case Swc4jAstNull _ -> {
         mv.visitInsn(ACONST_NULL);
@@ -488,9 +508,11 @@ final class CodeGen {
       }
       case Swc4jAstReturnStmt returnStmt -> {
         var argOpt = returnStmt.getArg();
-        argOpt.ifPresentOrElse(
-            this::visit,
-            () -> ldcUndefined(mv));
+        if (argOpt.isPresent()) {
+          visit(argOpt.orElseThrow());
+        } else {
+          ldcUndefined(mv);
+        }
         mv.visitInsn(ARETURN);
       }
       case Swc4jAstFnDecl fnDecl -> {
@@ -544,9 +566,11 @@ final class CodeGen {
       }
       case Swc4jAstVarDeclarator varDeclarator -> {
         var initOpt = varDeclarator.getInit();
-        initOpt.ifPresentOrElse(
-            this::visit,
-            () -> ldcUndefined(mv));
+        if (initOpt.isPresent()) {
+          visit(initOpt.orElseThrow());
+        } else {
+          ldcUndefined(mv);
+        }
         var varIndex = varIndex(varDeclarator);
         mv.visitVarInsn(ASTORE, varIndex);
       }
@@ -611,13 +635,42 @@ final class CodeGen {
         var index = varIndex(expr);
         mv.visitVarInsn(ALOAD, index);
       }
+      case Swc4jAstIfStmt ifStmt -> {
+        visit(ifStmt.getTest());
+        mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
+        var elseLabel = new Label();
+        mv.visitJumpInsn(IFEQ, elseLabel);
+        visit(ifStmt.getCons());
+        var altOpt = ifStmt.getAlt();
+        if (altOpt.isPresent()) {
+          var endLabel = new Label();
+          mv.visitJumpInsn(GOTO, endLabel);
+          mv.visitLabel(elseLabel);
+          visit(altOpt.orElseThrow());
+          mv.visitLabel(endLabel);
+        } else {
+          mv.visitLabel(elseLabel);
+        }
+      }
+      case Swc4jAstCondExpr condExpr -> {
+        visit(condExpr.getTest());
+        mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
+        var elseLabel = new Label();
+        mv.visitJumpInsn(IFEQ, elseLabel);
+        visit(condExpr.getCons());
+        var endLabel = new Label();
+        mv.visitJumpInsn(GOTO, endLabel);
+        mv.visitLabel(elseLabel);
+        visit(condExpr.getAlt());
+        mv.visitLabel(endLabel);
+      }
       case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
            Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
            Swc4jAstDoWhileStmt _,
            Swc4jAstForInStmt _, Swc4jAstForOfStmt _, Swc4jAstForStmt _, Swc4jAstWhileStmt _,
-           Swc4jAstIfStmt _, Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
+           Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
-           Swc4jAstAwaitExpr _, Swc4jAstClassExpr _, Swc4jAstCondExpr _,
+           Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
            Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
            Swc4jAstSeqExpr _, Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
            Swc4jAstTaggedTpl _, Swc4jAstTpl _, Swc4jAstYieldExpr _,

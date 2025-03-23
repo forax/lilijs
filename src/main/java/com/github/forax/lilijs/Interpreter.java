@@ -59,6 +59,7 @@ public final class Interpreter {
     var global = new JSObject(null);
     global.register("NaN", Double.NaN);
     global.register("Infinity", Double.POSITIVE_INFINITY);
+    global.register("undefined", RT.UNDEFINED);
     global.register("print", new JSFunction("print", (_, array) -> {
       outStream.println(Arrays.stream(array).map(String::valueOf).collect(Collectors.joining(" ")));
       return RT.UNDEFINED;

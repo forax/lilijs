@@ -53,6 +53,10 @@ public final class RT {
     return UNDEFINED;
   }
 
+  public static Object bsm_bool(MethodHandles.Lookup lookup, String debugName, Class<?> type, Object constant) {
+    return (int) constant == 1;
+  }
+
   public static Object bsm_const(MethodHandles.Lookup lookup, String debugName, Class<?> type, Object constant) {
     return constant;
   }
@@ -71,6 +75,7 @@ public final class RT {
   }
 
   private static final class BinaryBuiltinIC extends MutableCallSite {
+    private static final MethodType GENERIC_TYPE = MethodType.genericMethodType(2);
     private static final MethodHandle SLOW_PATH, CHECK;
     static {
       var lookup = MethodHandles.lookup();
@@ -97,9 +102,14 @@ public final class RT {
 
     @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o1, Object o2) {
-      var c1 = o1.getClass();
-      var c2 = o2.getClass();
+
+      var c1 = o1 == null ? Object.class : o1.getClass();
+      var c2 = o2 == null ? Object.class : o2.getClass();
       var mh = Builtin.resolveBinary(opName, c1, c2);
+      if (GENERIC_TYPE.equals(mh.type())) {
+        setTarget(mh);
+        return mh;
+      }
       var guard = MethodHandles.guardWithTest(
           MethodHandles.insertArguments(CHECK, 0, c1, c2),
           mh,
@@ -110,6 +120,7 @@ public final class RT {
   }
 
   private static final class UnaryBuiltinIC extends MutableCallSite {
+    private static final MethodType GENERIC_TYPE = MethodType.genericMethodType(1);
     private static final MethodHandle SLOW_PATH, CHECK;
     static {
       var lookup = MethodHandles.lookup();
@@ -136,8 +147,12 @@ public final class RT {
 
     @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o) {
-      var c = o.getClass();
+      var c = o == null ? Object.class : o.getClass();
       var mh = Builtin.resolveUnary(opName, c);
+      if (GENERIC_TYPE.equals(mh.type())) {
+        setTarget(mh);
+        return mh;
+      }
       var guard = MethodHandles.guardWithTest(
           MethodHandles.insertArguments(CHECK, 0, c),
           mh,
@@ -201,7 +216,7 @@ public final class RT {
 
   @SuppressWarnings("unused")  // used by a method handle
   private static boolean truth(Object o) {
-    return o != null && o != UNDEFINED && o != Boolean.FALSE;
+    return /*o != null &&*/ o != UNDEFINED && o instanceof Boolean b ? b : o instanceof Integer v ? v != 0 : o instanceof String s && !s.isEmpty();
   }
 
   public static CallSite bsm_truth(MethodHandles.Lookup lookup, String debugName, MethodType type) {
