@@ -168,7 +168,7 @@ public final class RT {
     return value;
   }
   public static CallSite bsm_lookup(MethodHandles.Lookup lookup, String debugName, MethodType type, String variableName) {
-    var classLoader = (FunctionClassLoader) lookup.lookupClass().getClassLoader();
+    var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var globalEnv = classLoader.global();
     var target = insertArguments(LOOKUP_OR_FAIL, 0, globalEnv, variableName);
     return new ConstantCallSite(target);
@@ -179,7 +179,7 @@ public final class RT {
     return new JSFunction(name, target);
   }
   public static Object bsm_fndecl(MethodHandles.Lookup lookup, String debugName, TypeDescriptor typeDescriptor, int funId) {
-    var classLoader = (FunctionClassLoader) lookup.lookupClass().getClassLoader();
+    var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var global = classLoader.global();
     var fnInfo = classLoader.dict().decodeFnInfo(funId);
     var name = fnInfo.name();
@@ -207,7 +207,7 @@ public final class RT {
 
   public static CallSite bsm_register(MethodHandles.Lookup lookup, String debugName, MethodType type, String functionName) {
     //throw new UnsupportedOperationException("TODO bsm_register");
-    var classLoader = (FunctionClassLoader) lookup.lookupClass().getClassLoader();
+    var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var globalEnv = classLoader.global();
     return new ConstantCallSite(insertArguments(REGISTER, 0, globalEnv, functionName));
   }

@@ -132,8 +132,8 @@ final class CodeGen {
     var instrs = cv.toByteArray();
     dumpBytecode(instrs);
 
-    var functionClassLoader = new FunctionClassLoader(dict, global);
-    var type = functionClassLoader.createClass("script", instrs);
+    var classLoader = new IsolateClassLoader(dict, global);
+    var type = classLoader.createClass("script", instrs);
 
     MethodHandle mh;
     try {

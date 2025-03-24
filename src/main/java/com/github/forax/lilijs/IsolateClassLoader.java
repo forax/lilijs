@@ -1,10 +1,10 @@
 package com.github.forax.lilijs;
 
-final class FunctionClassLoader extends ClassLoader {
+final class IsolateClassLoader extends ClassLoader {
   private final Dict dict;
   private final JSObject global; 
   
-  FunctionClassLoader(Dict dict, JSObject global) {
+  IsolateClassLoader(Dict dict, JSObject global) {
     this.dict = dict;
     this.global = global;
   }
