@@ -269,28 +269,42 @@ class Builtin {
   private static double plus(double a) {
     return a;
   }
-  private static int minus(int a) {
+  private static Object minus(int a) {
+    if (a == Integer.MAX_VALUE) {
+      return - (double) a;
+    }
     return - a;
   }
   private static double minus(double a) {
     return - a;
   }
 
-  private static Stub resolveUnaryNumber(String name, Class<?> type) {
+  private static Stub resolveUnaryPlus(Class<?> type) {
     checkOperandIsNumber(type);
     if (type == Double.class) {
-      return resolveUnaryBuiltin(name, double.class,double.class);
+      return resolveUnaryBuiltin("plus", double.class,double.class);
     }
     if (type == Integer.class) {
-      return resolveUnaryBuiltin(name, int.class,int.class);
+      return resolveUnaryBuiltin("plus", int.class,int.class);
     }
-    throw new Failure(name + " " + type.getName());
+    throw new Failure("plus " + type.getName());
+  }
+
+  private static Stub resolveUnaryMinus(Class<?> type) {
+    checkOperandIsNumber(type);
+    if (type == Double.class) {
+      return resolveUnaryBuiltin("minus", double.class,double.class);
+    }
+    if (type == Integer.class) {
+      return resolveUnaryBuiltin("minus", Object.class,int.class);
+    }
+    throw new Failure("minus " + type.getName());
   }
 
   private static Stub resolveUnaryOp(String opName, Class<?> type) {
     var stub = switch (opName) {
-      case "+" -> resolveUnaryNumber("plus", type);
-      case "-" -> resolveUnaryNumber("minus", type);
+      case "+" -> resolveUnaryPlus(type);
+      case "-" -> resolveUnaryMinus(type);
       default -> throw new UnsupportedOperationException(opName + " " + type.getName());
     };
     return stub.asType(type);

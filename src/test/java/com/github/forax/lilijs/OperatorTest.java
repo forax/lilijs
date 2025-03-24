@@ -237,8 +237,7 @@ public class OperatorTest {
         """));
   }
 
-  @Test
-  @Disabled
+  @Test @Disabled
   public void testInfinityArithmetic() {
     assertEquals("Infinity\n", execute("""
         print(Infinity + 5);
@@ -594,7 +593,148 @@ public class OperatorTest {
         """));
   }
 
-    /*
+  @Test
+  public void testUnaryOperators() {
+    assertEquals("-5\n", execute("print(-(2 + 3));"));
+    assertEquals("4\n", execute("print(+(3 + 1));"));
+  }
+
+  @Test @Disabled  // FIXME
+  public void testNumberOverflow() {
+    // Test beyond 64-bit double precision
+    assertEquals("1e+308\n", execute("print(1e308);"));
+    assertEquals("Infinity\n", execute("print(1e309);"));
+
+    // Test beyond 32-bit integer range
+    assertEquals("2147483647\n", execute("print(2147483647);"));
+    assertEquals("2147483648\n", execute("print(2147483648);"));
+    assertEquals("-2147483648\n", execute("print(-2147483648);"));
+    assertEquals("-2147483649\n", execute("print(-2147483649);"));
+  }
+
+  @Test @Disabled  // FIXME
+  public void testUnderflow() {
+    assertEquals("5e-324\n", execute("print(5e-324);"));
+    assertEquals("0\n", execute("print(1e-325);"));
+  }
+
+  @Test
+  public void testDivisionEdgeCases() {
+    assertEquals("Infinity\n", execute("print(1 / 0);"));
+    assertEquals("-Infinity\n", execute("print(-1 / 0);"));
+    assertEquals("NaN\n", execute("print(0 / 0);"));
+  }
+
+  @Test @Disabled
+  public void testBitwiseOperations() {
+    // JavaScript converts numbers to 32-bit integers for bitwise ops
+    assertEquals("3\n", execute("print(1 | 2);"));
+    assertEquals("0\n", execute("print(1 & 2);"));
+    assertEquals("-2147483648\n", execute("print(1 << 31);"));
+    assertEquals("-1\n", execute("print(~0);"));
+  }
+
+
+  @Test
+  public void test32BitIntegerMultiplication() {
+    // Test basic 32-bit integer operations
+    assertEquals("2147483647\n", execute("print(2147483647 * 1);"));
+    assertEquals("-2147483647\n", execute("print(2147483647 * -1);"));
+    assertEquals("0\n", execute("print(2147483647 * 0);"));
+    assertEquals("2147483646\n", execute("print(1073741823 * 2);"));
+    assertEquals("1\n", execute("print(1 * 1);"));
+  }
+
+  @Test @Disabled
+  public void testBitwise32BitOperations() {
+    // JavaScript bitwise operations convert to 32-bit integers
+    assertEquals("2147483647\n", execute("print(2147483647 | 0);"));
+    assertEquals("-2147483648\n", execute("print(2147483648 | 0);")); // Wraps around
+    assertEquals("0\n", execute("print(2147483647 & 0);"));
+    assertEquals("1\n", execute("print(2147483647 & 1);"));
+    assertEquals("-2147483648\n", execute("print(1 << 31);"));
+    assertEquals("1073741824\n", execute("print(2147483648 >> 1);"));
+    assertEquals("1073741824\n", execute("print(-2147483648 >>> 1);"));
+  }
+
+  @Test @Disabled
+  public void test32BitIntegerEdgeCases() {
+    // Minimum 32-bit integer value
+    assertEquals("-2147483648\n", execute("print(-2147483648);"));
+
+    // Operations with MIN_VALUE
+    assertEquals("0\n", execute("print(-2147483648 + 2147483648);"));
+    assertEquals("-4294967296\n", execute("print(-2147483648 * 2);"));
+
+    // Right shift preserves sign
+    assertEquals("-1073741824\n", execute("print(-2147483648 >> 1);"));
+  }
+
+  /*
+  @Test
+  public void testLargeIntegerArithmetic() {
+    // JavaScript can handle these with some precision loss
+    assertEquals("9007199254740992\n", execute("print(9007199254740992);"));
+    assertEquals("9007199254740994\n", execute("print(9007199254740992 + 2);"));
+
+    // Beyond safe integer range (Number.MAX_SAFE_INTEGER)
+    assertEquals("9007199254740992\n", execute("print(9007199254740991 + 1);"));
+    assertEquals("9007199254740992\n", execute("print(9007199254740992 + 1);")); // Precision loss
+  }
+
+  @Test
+  public void test32BitIntegerMultiplicationOverflow() {
+    // These will overflow the 32-bit integer range but JavaScript uses floating point
+    assertEquals("4611686014132420600\n", execute("print(2147483647 * 2147483647);"));
+    assertEquals("4611686018427388000\n", execute("print(2147483648 * 2147483648);"));
+  }
+
+  @Test
+  public void test32BitIntegerSubtraction() {
+    assertEquals("2147483646\n", execute("print(2147483647 - 1);"));
+    assertEquals("-2147483648\n", execute("print(-2147483647 - 1);"));
+    assertEquals("0\n", execute("print(2147483647 - 2147483647);"));
+    assertEquals("-1\n", execute("print(2147483647 - 2147483648);"));
+    assertEquals("2147483647\n", execute("print(0 - -2147483647);"));
+  }
+
+  @Test
+  public void test32BitIntegerSubtractionOverflow() {
+    assertEquals("2147483648\n", execute("print(0 - -2147483648);")); // Becomes positive
+    assertEquals("-2147483649\n", execute("print(-2147483648 - 1);")); // Underflow
+  }
+
+  @Test
+  public void test32BitIntegerAddition() {
+    assertEquals("2147483647\n", execute("print(2147483646 + 1);"));
+    assertEquals("-2147483648\n", execute("print(-2147483647 + -1);"));
+    assertEquals("0\n", execute("print(2147483647 + -2147483647);"));
+    assertEquals("-1\n", execute("print(2147483647 + -2147483648);"));
+  }
+
+  @Test
+  public void test32BitIntegerAdditionOverflow() {
+    assertEquals("2147483648\n", execute("print(2147483647 + 1);")); // Overflow
+    assertEquals("-2147483649\n", execute("print(-2147483648 + -1);")); // Underflow
+  }
+
+  @Test
+  public void test32BitIntegerDivision() {
+    assertEquals("715827882.3333334\n", execute("print(2147483647 / 3);")); // Fractional result
+    assertEquals("2147483647\n", execute("print(2147483647 / 1);"));
+    assertEquals("-2147483648\n", execute("print(-2147483648 / 1);"));
+    assertEquals("4.656612875245797e-10\n", execute("print(1 / 2147483647);")); // Very small result
+  }
+
+  @Test
+  public void test32BitIntegerWithOtherOperations() {
+    // Combined operations
+    assertEquals("2147483647\n", execute("print((2147483646 + 1) * 1);"));
+    assertEquals("-2147483648\n", execute("print((2147483647 * 2) / -1);"));
+    assertEquals("1\n", execute("print(2147483647 % 2147483646);"));
+  }
+
+  /*
     @Test
     public void testSpecialValuesTypeOf() {
       assertEquals("number\n", execute("""
