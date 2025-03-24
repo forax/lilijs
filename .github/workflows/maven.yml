@@ -1,0 +1,25 @@
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        java: [ '24' ]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+    name: Java ${{ matrix.java }} on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          cache: 'maven'
+          java-version: ${{ matrix.java }}
+      - name: build
+        run: |
+          mvn -B package
