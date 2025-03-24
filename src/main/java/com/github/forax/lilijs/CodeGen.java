@@ -317,15 +317,21 @@ final class CodeGen {
             case VarData.Global _ -> throw new Failure("unknown local variable " + name);
           }
         }
+        case Swc4jAstUpdateExpr updateExpr -> {
+          var name = name(updateExpr.getArg());
+          var varData = ctx.varUse(name);
+          switch (varData) {
+            case VarData.Local _ -> registerVarData(updateExpr, varData);
+            case VarData.Capture _ -> throw new UnsupportedOperationException("can not assign a captured value " + name);
+            case VarData.Global _ -> throw new Failure("unknown local variable " + name);
+          }
+        }
         case Swc4jAstBinExpr binaryExpr -> {
           visitVar(binaryExpr.getLeft(), ctx);
           visitVar(binaryExpr.getRight(), ctx);
         }
         case Swc4jAstUnaryExpr unaryExpr -> {
           visitVar(unaryExpr.getArg(), ctx);
-        }
-        case Swc4jAstUpdateExpr updateExpr -> {
-          visitVar(updateExpr.getArg(), ctx);
         }
         case Swc4jAstCallExpr callExpr -> {
           visitVar(callExpr.getCallee(), ctx);
@@ -606,6 +612,24 @@ final class CodeGen {
         var varIndex = varIndex(assignExpr);
         mv.visitVarInsn(ASTORE, varIndex);
       }
+      case Swc4jAstUpdateExpr updateExpr -> {
+        var varIndex = varIndex(updateExpr);
+        mv.visitVarInsn(ALOAD, varIndex);
+        var prefix = updateExpr.isPrefix();
+        if (!prefix) {
+          mv.visitInsn(DUP);
+        }
+        mv.visitLdcInsn(new ConstantDynamic("const", "Ljava/lang/Object;", BSM_CONST, 1));
+        var opName = switch (updateExpr.getOp()) {
+          case PlusPlus -> "+";
+          case MinusMinus -> "-";
+        };
+        mv.visitInvokeDynamicInsn("binary", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
+        if (prefix) {
+          mv.visitInsn(DUP);
+        }
+        mv.visitVarInsn(ASTORE, varIndex);
+      }
       case Swc4jAstBinExpr binaryExpr -> {
         var opName = binaryExpr.getOp().getName();
         visit(binaryExpr.getLeft());
@@ -616,10 +640,6 @@ final class CodeGen {
         var opName = unaryExpr.getOp().getName();
         visit(unaryExpr.getArg());
         mv.visitInvokeDynamicInsn("unary", "(Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
-      }
-      case Swc4jAstUpdateExpr updateExpr -> {
-        visit(updateExpr.getArg());
-        throw new UnsupportedOperationException("TODO UPDATE");
       }
       case Swc4jAstCallExpr callExpr -> {
         visit(callExpr.getCallee());

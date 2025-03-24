@@ -321,14 +321,39 @@ public class AssignmentTest {
         """));
   }
 
-  @Test @Disabled
-  public void testIncrementAndDecrementOperators() {
-    assertEquals("10\n11\n11\n10\n", execute("""
+  @Test
+  public void testPreIncrementOperator() {
+    assertEquals("11\n11\n", execute("""
         let x = 10;
+        print(++x);
         print(x);
-        print(++x); // Pre-increment, should be 11
-        print(x--);  // Post-decrement, should still show 11
-        print(x);    // Now should be 10
+        """));
+  }
+
+  @Test
+  public void testPostIncrementOperator() {
+    assertEquals("10\n11\n", execute("""
+        let x = 10;
+        print(x++);
+        print(x);
+        """));
+  }
+
+  @Test
+  public void testPreDecrementOperator() {
+    assertEquals("9\n9\n", execute("""
+        let x = 10;
+        print(--x);
+        print(x);
+        """));
+  }
+
+  @Test
+  public void testPostDecrementOperator() {
+    assertEquals("10\n9\n", execute("""
+        let x = 10;
+        print(x--);
+        print(x);
         """));
   }
 }
