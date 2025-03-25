@@ -279,15 +279,23 @@ class Builtin {
     return - a;
   }
   private static Object plusOne(int a) {
-    if (a == Integer.MAX_VALUE) {
+    try {
+      return Math.addExact(a, 1);
+    } catch (ArithmeticException e) {
       return ((double) a) + 1;
     }
+  }
+  private static double plusOne(double a) {
     return a + 1;
   }
   private static Object minusOne(int a) {
-    if (a == Integer.MIN_VALUE) {
+    try {
+      return Math.subtractExact(a, 1);
+    } catch (ArithmeticException e) {
       return ((double) a) - 1;
     }
+  }
+  private static double minusOne(double a) {
     return a - 1;
   }
 
