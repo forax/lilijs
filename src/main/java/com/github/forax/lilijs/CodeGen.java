@@ -619,12 +619,11 @@ final class CodeGen {
         if (!prefix) {
           mv.visitInsn(DUP);
         }
-        mv.visitLdcInsn(new ConstantDynamic("const", "Ljava/lang/Object;", BSM_CONST, 1));
         var opName = switch (updateExpr.getOp()) {
-          case PlusPlus -> "+";
-          case MinusMinus -> "-";
+          case PlusPlus -> "++";
+          case MinusMinus -> "--";
         };
-        mv.visitInvokeDynamicInsn("binary", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
+        mv.visitInvokeDynamicInsn("unary", "(Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
         if (prefix) {
           mv.visitInsn(DUP);
         }
