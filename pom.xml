@@ -33,6 +33,17 @@
             <version>5.11.3</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+            <version>1.37</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-generator-annprocess</artifactId>
+            <version>1.37</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -43,6 +54,13 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>24</release>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.openjdk.jmh</groupId>
+                            <artifactId>jmh-generator-annprocess</artifactId>
+                            <version>1.37</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
 
@@ -56,6 +74,10 @@
                         <includes>
                             <include>org.ow2.asm:*</include>
                             <include>com.caoccao.javet:swc4j</include>
+                            <!-- also include JMH for now -->
+                            <include>org.openjdk.jmh:jmh-core</include>
+                            <include>net.sf.jopt-simple:jopt-simple</include>
+                            <include>org.apache.commons:commons-math3</include>
                         </includes>
                     </artifactSet>
                     <filters>
@@ -71,6 +93,7 @@
                         <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                             <manifestEntries>
                                 <Main-Class>com.github.forax.lilijs.main.Main</Main-Class>
+                                <!-- Main-Class>org.openjdk.jmh.Main</Main-Class -->
                                 <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
                             </manifestEntries>
                         </transformer>
@@ -91,7 +114,6 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
             </plugin>
-
         </plugins>
     </build>
 
