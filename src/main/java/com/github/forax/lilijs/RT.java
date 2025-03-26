@@ -95,7 +95,7 @@ public final class RT {
     }
 
     private static boolean check(Class<?> c1, Class<?> c2, Object o1, Object o2) {
-      return o1.getClass() == c1 && o2.getClass() == c2;
+      return o1 != null && o1.getClass() == c1 && o2 != null && o2.getClass() == c2;
     }
 
     @SuppressWarnings("unused")  // called by a MH
@@ -139,7 +139,7 @@ public final class RT {
     }
 
     private static boolean check(Class<?> c, Object o) {
-      return o.getClass() == c;
+      return o!= null && o.getClass() == c;
     }
 
     @SuppressWarnings("unused")  // called by a MH
@@ -219,12 +219,11 @@ public final class RT {
   }
 
   private static final class TruthBuiltinIC extends MutableCallSite {
-    private static final MethodHandle SLOW_PATH, SECONDARY_SLOW_PATH, FALLBACK, CHECK, CLASS_CHECK;
+    private static final MethodHandle SLOW_PATH, FALLBACK, CHECK, CLASS_CHECK;
     static {
       var lookup = MethodHandles.lookup();
       try {
         SLOW_PATH = lookup.findVirtual(TruthBuiltinIC.class, "slowPath", methodType(boolean.class, Object.class));
-        SECONDARY_SLOW_PATH = lookup.findVirtual(TruthBuiltinIC.class, "secondarySlowPath", methodType(boolean.class, Object.class, Object.class));
         FALLBACK = lookup.findVirtual(TruthBuiltinIC.class, "fallback", methodType(boolean.class, Object.class));
         CHECK = lookup.findStatic(TruthBuiltinIC.class, "check", methodType(boolean.class, Object.class, Object.class));
         CLASS_CHECK = lookup.findStatic(TruthBuiltinIC.class, "classCheck", methodType(boolean.class, Class.class, Object.class));
@@ -246,36 +245,37 @@ public final class RT {
       return o!= null && o.getClass() == c;
     }
 
-    @SuppressWarnings("unused")  // called by a MH
     private boolean slowPath(Object o) {
+      // add null check and undefined check, then the type check
+      if (o == null || o == RT.UNDEFINED) {
+        var guard = guardWithTest(CHECK.bindTo(o),
+            MethodHandles.dropArguments(constant(boolean.class, false), 0, Object.class),
+            new TruthBuiltinIC(type()).dynamicInvoker());
+        setTarget(guard);
+        return false;
+      }
       var result = Builtin.truth(o);
-      var guard = guardWithTest(CHECK.bindTo(o),
-          MethodHandles.dropArguments(constant(boolean.class, result), 0, Object.class),
-          insertArguments(SECONDARY_SLOW_PATH, 0,this, o));
+      var type = o.getClass();
+      var stub = Builtin.resolveTruth(type);
+      var mh = stub.mh();
+      // even if the stub is generic, we still want the VM to know the type of 'o'
+      var guard = guardWithTest(CLASS_CHECK.bindTo(type),
+          mh,
+          FALLBACK.bindTo(this));
       setTarget(guard);
       return result;
     }
 
-    private boolean secondarySlowPath(Object previous, Object o) {
-      if (previous == null || o == null) {
-        return fallback(o);
-      }
-      var type = o.getClass();
-      if (previous.getClass() != type) {
-        return fallback(o);
-      }
-      var stub = Builtin.resolveTruth(type);
-      var mh = stub.mh();
-      if (stub.generic()) {
-        setTarget(mh);
-        return Builtin.truth(o);
-      }
-      var guard = guardWithTest(CLASS_CHECK.bindTo(type), mh, FALLBACK.bindTo(this));
-      setTarget(guard);
-      return Builtin.truth(o);
-    }
-
     private boolean fallback(Object o) {
+      // add null check and undefined check in front
+      if (o == null || o == RT.UNDEFINED) {
+        var guard = guardWithTest(CHECK.bindTo(o),
+            MethodHandles.dropArguments(constant(boolean.class, false), 0, Object.class),
+            getTarget());
+        setTarget(guard);
+        return false;
+      }
+      // more than one type, revert to default strategy
       setTarget(Builtin.resolveTruth(Object.class).mh());
       return Builtin.truth(o);
     }

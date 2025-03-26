@@ -19,9 +19,10 @@ import java.util.concurrent.TimeUnit;
 // java -cp ./target/lilijs-0.1.0.jar org.openjdk.jmh.Main
 
 // macOS macbook air M2
-// Benchmark           Mode  Cnt     Score    Error  Units
-// LoopBench.javaLoop  avgt    5  4810.063 ±  5.136  ns/op
-// LoopBench.jsLoop    avgt    5  4662.073 ± 18.598  ns/op
+// Benchmark            Mode  Cnt     Score    Error  Units
+// LoopBench.boxedLoop  avgt    5  4559.639 ± 21.029  ns/op
+// LoopBench.javaLoop   avgt    5  4802.063 ± 29.899  ns/op
+// LoopBench.jsLoop     avgt    5  4643.356 ± 29.041  ns/op
 
 // Linux 6.1.7-gentoo-x86_64 SMP PREEMPT_DYNAMIC x86_64 Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
 // Benchmark            Mode  Cnt     Score     Error  Units
