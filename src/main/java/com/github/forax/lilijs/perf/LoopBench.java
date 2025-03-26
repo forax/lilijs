@@ -18,13 +18,16 @@ import java.util.concurrent.TimeUnit;
 // run benchmark using
 // java -cp ./target/lilijs-0.1.0.jar org.openjdk.jmh.Main
 
+// macOS macbook air M2
 // Benchmark           Mode  Cnt     Score    Error  Units
 // LoopBench.javaLoop  avgt    5  4810.063 ±  5.136  ns/op
 // LoopBench.jsLoop    avgt    5  4662.073 ± 18.598  ns/op
 
-// Benchmark           Mode  Cnt     Score    Error  Units
-// LoopBench.javaLoop  avgt    5  4809.587 ± 10.088  ns/op
-// LoopBench.jsLoop    avgt    5  4653.401 ±  8.467  ns/op
+// Linux 6.1.7-gentoo-x86_64 SMP PREEMPT_DYNAMIC x86_64 Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+// Benchmark            Mode  Cnt     Score     Error  Units
+// LoopBench.boxedLoop  avgt    5  5416.553 ± 196.887  ns/op
+// LoopBench.javaLoop   avgt    5  4668.985 ±  83.428  ns/op
+// LoopBench.jsLoop     avgt    5  5191.378 ± 307.627  ns/op
 
 @Warmup(iterations = 5, time = 5, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 5, timeUnit = TimeUnit.SECONDS)
