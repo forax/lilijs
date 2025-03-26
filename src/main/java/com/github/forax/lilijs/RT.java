@@ -218,6 +218,9 @@ public final class RT {
     return new TruthBuiltinIC(type);
   }
 
+  // try to do a class check so the result (true or false) is a constant
+  // if the value is null or undefined, those should be checked *before* the class check
+  // if there are more than one class, revert and call the generic `Builtin.truth(o)`
   private static final class TruthBuiltinIC extends MutableCallSite {
     private static final MethodHandle SLOW_PATH, FALLBACK, CHECK, CLASS_CHECK;
     static {
