@@ -227,6 +227,79 @@ public class ControlFlowTest {
   }
 
   @Test
+  public void testForLoopPostIncrementWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        for (let i = 0; i < 5; i++) {
+            print(i);
+        }
+        """));
+  }
+
+  @Test
+  public void testForLoopPreIncrementWithNumbers() {
+    assertEquals("0\n1\n2\n3\n4\n", execute("""
+        for (let i = 0; i < 5; ++i) {
+            print(i);
+        }
+        """));
+  }
+
+  @Test
+  public void testForLoopWithALotOfNumbers() {
+    assertEquals("1454\n", execute("""
+        let value = 0;
+        for(let i = 0; i < 1000; i++) {
+          value = (value * 17 + i) % 1773;
+        }
+        print(value);
+        """));
+  }
+
+  @Test
+  public void testForLoopWithALotOfNumbers2() {
+    assertEquals("1031\n", execute("""
+        let value = 0;
+        for(let i = 0; i < 10000; i++) {
+          value = (value * 17 + i) % 1773;
+        }
+        print(value);
+        """));
+  }
+
+  @Test
+  public void testForLoopWithALotOfNumbers3() {
+    assertEquals("1418\n", execute("""
+        let value = 0;
+        for(let i = 0; i < 100000; i++) {
+          value = (value * 17 + i) % 1773;
+        }
+        print(value);
+        """));
+  }
+
+  @Test
+  public void testForLoopWithALotOfNumbers4() {
+    assertEquals("257\n", execute("""
+        let value = 0;
+        for(let i = 0; i < 1000000; i++) {
+          value = (value * 17 + i) % 1773;
+        }
+        print(value);
+        """));
+  }
+
+  @Test
+  public void testForLoopWithALotOfNumbers5() {
+    assertEquals("1112\n", execute("""
+        let value = 0;
+        for(let i = 0; i < 10000000; i++) {
+          value = (value * 17 + i) % 1773;
+        }
+        print(value);
+        """));
+  }
+
+  @Test
   public void testForLoopNoInitWithNumbers() {
     assertEquals("0\n1\n2\n3\n4\n", execute("""
         let i = 0;
