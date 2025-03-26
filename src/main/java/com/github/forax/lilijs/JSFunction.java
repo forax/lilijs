@@ -1,12 +1,8 @@
 package com.github.forax.lilijs;
 
-import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAst;
-
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.util.HashMap;
-import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -23,9 +19,9 @@ public final class JSFunction {
     }
   }
 
-  public record FunctionData(List<String> parameters, ISwc4jAst body,
-                             int captureCount, HashMap<ISwc4jAst, Object> dataMap,
-                             JSObject global) {}
+  public interface MethodHandleProvider {
+    MethodHandle provide();
+  }
 
   public interface Invoker {
     Object invoke(Object receiver, Object... args);
@@ -39,12 +35,12 @@ public final class JSFunction {
       asMethodHandle((_, _) -> { throw new Failure("can not be invoked"); });
 
   private JSFunction(String name, Object data) {
-    this.name = name;
-    this.data = data;
+    this.name = requireNonNull(name);
+    this.data = requireNonNull(data);
   }
 
-  public JSFunction(String name, FunctionData functionData) {
-    this(name, (Object) functionData);
+  public JSFunction(String name, MethodHandleProvider mhProvider) {
+    this(name, (Object) mhProvider);
   }
 
   public JSFunction(String name, MethodHandle mh) {
@@ -52,7 +48,7 @@ public final class JSFunction {
   }
 
   public JSFunction(String name, Invoker invoker) {
-    this(name, asMethodHandle(invoker));
+    this(name, asMethodHandle(requireNonNull(invoker)));
   }
   
   public String name() {
@@ -66,8 +62,8 @@ public final class JSFunction {
   }
 
   private MethodHandle lazyCreateMH() {
-    var fnData = (FunctionData) data;
-    var mh = CodeGen.createFunctionMH(name, fnData.parameters, fnData.body, fnData.captureCount, fnData.dataMap, fnData.global);
+    var mhProvider = (MethodHandleProvider) data;
+    var mh = mhProvider.provide();
     data = mh;
     return mh;
   }

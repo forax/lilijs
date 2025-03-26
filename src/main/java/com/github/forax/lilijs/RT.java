@@ -198,7 +198,7 @@ public final class RT {
     }
 
     // it's a constant dynamic => lazy allocation
-    var jsFunction = new JSFunction(name, new JSFunction.FunctionData(parameters, body, 0, dataMap, global));
+    var jsFunction = new JSFunction(name, () -> CodeGen.createFunctionMH(name, parameters, body, 0, dataMap, global));
     if (fnInfo.toplevel()) {  // register to global
       global.register(jsFunction.name(), jsFunction);
     }
