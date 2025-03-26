@@ -8,7 +8,7 @@ import static java.util.Objects.requireNonNull;
 
 public final class JSFunction {
   private final String name;
-  private Object data;  // FunctionData | MethodHandle
+  private Object data;  // MethodHandleProvider | MethodHandle
 
   private static final MethodHandle INVOKER;
   static {
