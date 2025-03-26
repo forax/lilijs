@@ -82,6 +82,15 @@ public class LoopBench {
   }
 
   @Benchmark
+  public Object boxedLoop() {
+    var value = (Integer) 0;
+    for(var i = (Integer) 0; i < Integer.valueOf(1000); i++) {
+      value = Integer.valueOf(Integer.valueOf(value * 17) + i) % 1773;
+    }
+    return value;
+  }
+
+  @Benchmark
   public Object jsLoop() throws Throwable {
     return JS_LOOP.invokeExact((Object) null);
   }
