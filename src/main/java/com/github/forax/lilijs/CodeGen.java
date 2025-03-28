@@ -122,7 +122,7 @@ final class CodeGen {
     mv.visitCode();
 
     var dict = new Dict();
-    new CodeGen(mv, dict, dataMap).visit(body);
+    new CodeGen(mv, dict, dataMap).visitCode(body);
 
     ldcUndefined(mv);
     mv.visitInsn(ARETURN);
@@ -488,7 +488,7 @@ final class CodeGen {
     this.dataMap = dataMap;
   }
 
-  public void visit(ISwc4jAst ast) {
+  public void visitCode(ISwc4jAst ast) {
     switch (ast) {
       case Swc4jAstBool bool -> {
         mv.visitLdcInsn(new ConstantDynamic("bool", "Ljava/lang/Object;", BSM_BOOL, bool.isValue()));
@@ -511,37 +511,37 @@ final class CodeGen {
         // first, visit function declarations
         for(var fnDecl : partition.get(true)) {
           emitLine(fnDecl);
-          visit(fnDecl);
+          visitCode(fnDecl);
         }
         // then visit all other nodes
         for(var node : partition.get(false)) {
           emitLine(node);
-          visit(node);
+          visitCode(node);
         }
       }
       case Swc4jAstBlockStmt blockStmt -> {
         for(var stmt : blockStmt.getStmts()) {
           emitLine(stmt);
-          visit(stmt);
+          visitCode(stmt);
         }
       }
       case Swc4jAstEmptyStmt emptyStmt -> {
         // just do nothing
       }
       case Swc4jAstExprStmt exprStmt -> {
-        visit(exprStmt.getExpr());
+        visitCode(exprStmt.getExpr());
         mv.visitInsn(POP);
       }
       case Swc4jAstExprOrSpread exprOrSpread -> {
         if (exprOrSpread.getSpread().isPresent()) {
           throw new UnsupportedOperationException("spread are not supported");
         }
-        visit(exprOrSpread.getExpr());
+        visitCode(exprOrSpread.getExpr());
       }
       case Swc4jAstReturnStmt returnStmt -> {
         var argOpt = returnStmt.getArg();
         if (argOpt.isPresent()) {
-          visit(argOpt.orElseThrow());
+          visitCode(argOpt.orElseThrow());
         } else {
           ldcUndefined(mv);
         }
@@ -593,13 +593,13 @@ final class CodeGen {
           case Const, Let -> {}
         }
         for(var varDeclarator : varDecl.getDecls()) {
-          visit(varDeclarator);
+          visitCode(varDeclarator);
         }
       }
       case Swc4jAstVarDeclarator varDeclarator -> {
         var initOpt = varDeclarator.getInit();
         if (initOpt.isPresent()) {
-          visit(initOpt.orElseThrow());
+          visitCode(initOpt.orElseThrow());
         } else {
           ldcUndefined(mv);
         }
@@ -607,7 +607,7 @@ final class CodeGen {
         mv.visitVarInsn(ASTORE, varIndex);
       }
       case Swc4jAstAssignExpr assignExpr -> {
-        visit(assignExpr.getRight());
+        visitCode(assignExpr.getRight());
         mv.visitInsn(DUP);
         var varIndex = varIndex(assignExpr);
         mv.visitVarInsn(ASTORE, varIndex);
@@ -631,20 +631,20 @@ final class CodeGen {
       }
       case Swc4jAstBinExpr binaryExpr -> {
         var opName = binaryExpr.getOp().getName();
-        visit(binaryExpr.getLeft());
-        visit(binaryExpr.getRight());
+        visitCode(binaryExpr.getLeft());
+        visitCode(binaryExpr.getRight());
         mv.visitInvokeDynamicInsn("binary", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
       }
       case Swc4jAstUnaryExpr unaryExpr -> {
         var opName = unaryExpr.getOp().getName();
-        visit(unaryExpr.getArg());
+        visitCode(unaryExpr.getArg());
         mv.visitInvokeDynamicInsn("unary", "(Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
       }
       case Swc4jAstCallExpr callExpr -> {
-        visit(callExpr.getCallee());
+        visitCode(callExpr.getCallee());
         ldcUndefined(mv);
         for(var arg : callExpr.getArgs()) {
-          visit(arg);
+          visitCode(arg);
         }
         var desc = "(" + "Ljava/lang/Object;".repeat(2 + callExpr.getArgs().size()) + ")Ljava/lang/Object;";
         mv.visitInvokeDynamicInsn("call", desc, BSM_CALL);
@@ -669,44 +669,44 @@ final class CodeGen {
       }
       case Swc4jAstMemberExpr memberExpr -> {
         var name = memberExpr.getProp();
-        visit(memberExpr.getObj());
-        visit(memberExpr.getProp());
+        visitCode(memberExpr.getObj());
+        visitCode(memberExpr.getProp());
         mv.visitInvokeDynamicInsn("get", "(Ljava/lang/Object;)Ljava/lang/Object;", BSM_GET, name);
       }
       case Swc4jAstParenExpr parenExpr -> {
-        visit(parenExpr.getExpr());
+        visitCode(parenExpr.getExpr());
       }
       case Swc4jAstThisExpr expr -> {
         var index = varIndex(expr);
         mv.visitVarInsn(ALOAD, index);
       }
       case Swc4jAstIfStmt ifStmt -> {
-        visit(ifStmt.getTest());
+        visitCode(ifStmt.getTest());
         mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
         var elseLabel = new Label();
         mv.visitJumpInsn(IFEQ, elseLabel);
-        visit(ifStmt.getCons());
+        visitCode(ifStmt.getCons());
         var altOpt = ifStmt.getAlt();
         if (altOpt.isPresent()) {
           var endLabel = new Label();
           mv.visitJumpInsn(GOTO, endLabel);
           mv.visitLabel(elseLabel);
-          visit(altOpt.orElseThrow());
+          visitCode(altOpt.orElseThrow());
           mv.visitLabel(endLabel);
         } else {
           mv.visitLabel(elseLabel);
         }
       }
       case Swc4jAstCondExpr condExpr -> {
-        visit(condExpr.getTest());
+        visitCode(condExpr.getTest());
         mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
         var elseLabel = new Label();
         mv.visitJumpInsn(IFEQ, elseLabel);
-        visit(condExpr.getCons());
+        visitCode(condExpr.getCons());
         var endLabel = new Label();
         mv.visitJumpInsn(GOTO, endLabel);
         mv.visitLabel(elseLabel);
-        visit(condExpr.getAlt());
+        visitCode(condExpr.getAlt());
         mv.visitLabel(endLabel);
       }
       case Swc4jAstWhileStmt whileStmt -> {
@@ -714,24 +714,24 @@ final class CodeGen {
         mv.visitJumpInsn(GOTO, testLabel);
         var startLabel = new Label();
         mv.visitLabel(startLabel);
-        visit(whileStmt.getBody());
+        visitCode(whileStmt.getBody());
         mv.visitLabel(testLabel);
-        visit(whileStmt.getTest());
+        visitCode(whileStmt.getTest());
         mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
         mv.visitJumpInsn(IFNE, startLabel);
       }
       case Swc4jAstDoWhileStmt doWhileStmt -> {
         var startLabel = new Label();
         mv.visitLabel(startLabel);
-        visit(doWhileStmt.getBody());
-        visit(doWhileStmt.getTest());
+        visitCode(doWhileStmt.getBody());
+        visitCode(doWhileStmt.getTest());
         mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
         mv.visitJumpInsn(IFNE, startLabel);
       }
       case Swc4jAstForStmt forStmt -> {
         var optInit = forStmt.getInit();
         if (optInit.isPresent()) {
-          visit(optInit.orElseThrow());
+          visitCode(optInit.orElseThrow());
         }
         var testLabel = new Label();
         var testOpt = forStmt.getTest();
@@ -740,15 +740,15 @@ final class CodeGen {
         }
         var startLabel = new Label();
         mv.visitLabel(startLabel);
-        visit(forStmt.getBody());
+        visitCode(forStmt.getBody());
         var updateOpt = forStmt.getUpdate();
         if (updateOpt.isPresent()) {
-          visit(updateOpt.orElseThrow());
+          visitCode(updateOpt.orElseThrow());
           mv.visitInsn(POP);
         }
         mv.visitLabel(testLabel);
         if (testOpt.isPresent()) {
-          visit(testOpt.orElseThrow());
+          visitCode(testOpt.orElseThrow());
           mv.visitInvokeDynamicInsn("truth", "(Ljava/lang/Object;)Z", BSM_TRUTH);
           mv.visitJumpInsn(IFNE, startLabel);
         } else {
