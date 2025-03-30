@@ -213,7 +213,7 @@ public class AssignmentTest {
         """));
   }
 
-  @Test @Disabled
+  @Test
   public void testConditionalAssignment() {
     assertEquals("true case\n", execute("""
         let condition = true;
