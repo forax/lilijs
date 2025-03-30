@@ -201,9 +201,7 @@ final class CodeGen {
 
     private void visitVar(ISwc4jAst ast, VarContext ctx) {
       switch (ast) {
-        case Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstBool _, Swc4jAstNull _,
-             Swc4jAstNumber _, Swc4jAstObjectLit _, Swc4jAstRegex _, Swc4jAstStr _,
-             Swc4jAstEmptyStmt _ -> {
+        case Swc4jAstBool _, Swc4jAstNull _, Swc4jAstNumber _, Swc4jAstStr _, Swc4jAstEmptyStmt _ -> {
           // literal, do nothing
         }
         case ISwc4jAstProgram<?> program -> {
@@ -412,8 +410,8 @@ final class CodeGen {
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
              Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
              Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
-             Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
-             Swc4jAstTaggedTpl _, Swc4jAstTpl _, Swc4jAstYieldExpr _ -> {
+             Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _, Swc4jAstYieldExpr _,
+             Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _ -> {
           throw new UnsupportedOperationException("TODO " + ast.getClass().getName());
         }
         default -> throw new AssertionError("ERROR " + ast.getClass().getName());
@@ -777,8 +775,7 @@ final class CodeGen {
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
            Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
            Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
-           Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
-           Swc4jAstTaggedTpl _, Swc4jAstTpl _, Swc4jAstYieldExpr _,
+           Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _, Swc4jAstYieldExpr _,
            Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _
           -> {
         throw new UnsupportedOperationException("TODO " + ast.getClass().getName());
