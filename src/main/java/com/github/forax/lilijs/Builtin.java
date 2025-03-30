@@ -298,6 +298,9 @@ class Builtin {
   private static double minusOne(double a) {
     return a - 1;
   }
+  private static Object voidOp(Object o) {
+    return RT.UNDEFINED;
+  }
 
   private static Stub resolveUnaryPlus(Class<?> type) {
     checkOperandIsNumber(type);
@@ -327,6 +330,7 @@ class Builtin {
       case "-" -> resolveUnaryNumber("minus", type);
       case "++" -> resolveUnaryNumber("plusOne", type);
       case "--" -> resolveUnaryNumber("minusOne", type);
+      case "void" -> resolveUnaryBuiltin("voidOp", Object.class, Object.class);
       default -> throw new UnsupportedOperationException(opName + " " + type.getName());
     };
     return stub.asType(type);

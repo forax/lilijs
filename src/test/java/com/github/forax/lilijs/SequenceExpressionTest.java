@@ -88,7 +88,7 @@ public class SequenceExpressionTest {
         """));
   }
 
-  @Test @Disabled
+  @Test
   public void testSequenceExpressionWithVoidOperations() {
     assertEquals("30\n", execute("""
         let x = (void 10, void 20, 30);

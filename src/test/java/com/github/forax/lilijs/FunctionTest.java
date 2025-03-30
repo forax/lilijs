@@ -114,7 +114,7 @@ public class FunctionTest {
         """));
   }
 
-  @Test @Disabled  // FIXME when if is implemented
+  @Test
   public void testRecursiveFunction() {
     assertEquals("120\n", execute("""
         function factorial(n) {
