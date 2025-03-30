@@ -4,6 +4,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.util.HashMap;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 import static java.lang.invoke.MethodType.genericMethodType;
 import static java.lang.invoke.MethodType.methodType;
@@ -14,6 +15,9 @@ class Builtin {
   private static final HashMap<String, Stub> VARIANT_MAP = new HashMap<>();
 
   public record Stub(boolean generic, MethodHandle mh) {
+    public Stub apply(UnaryOperator<MethodHandle> op) {
+      return new Stub(generic, op.apply(mh));
+    }
     public Stub asType(Class<?>... parameterType) {
       return new Stub(generic, mh.asType(methodType(mh.type().returnType(), parameterType)));
     }
@@ -182,6 +186,24 @@ class Builtin {
   private static boolean ne(Object a, Object b) {
     return !Objects.equals(a, b);
   }
+  private static int leftShift(int a, int b) {
+    return a << b;
+  }
+  private static int rightShift(int a, int b) {
+    return a >> b;
+  }
+  private static int unsignedRightShift(int a, int b) {
+    return a >>> b;
+  }
+  private static int bitwiseOr(int a, int b) {
+    return a | b;
+  }
+  private static int bitwiseAnd(int a, int b) {
+    return a & b;
+  }
+  private static int bitwiseXor(int a, int b) {
+    return a ^ b;
+  }
 
   private static Stub resolveBinaryOpPlus(Class<?> type1, Class<?> type2) {
     if (type1 == String.class || type2 == String.class) {
@@ -245,6 +267,17 @@ class Builtin {
     return resolveBinaryBuiltin(name, boolean.class,Object.class, Object.class);
   }
 
+  private static Stub resolveBitwiseOp(String name, Class<?> type1, Class<?> type2) {
+    if (type1 == Integer.class && type2 == Integer.class) {
+      return resolveBinaryBuiltin(name, int.class,int.class, int.class);
+    }
+    if ((type1 == Double.class  && type2 == Integer.class) || (type1 == Integer.class && type2 == Double.class)) {
+      return resolveBinaryBuiltin(name, int.class,int.class, int.class)
+          .apply(mh -> MethodHandles.explicitCastArguments(mh, methodType(int.class, type1, type2)));
+    }
+    throw new Failure(type1.getName() + " " + name + " " + type2.getName());
+  }
+
   private static Stub resolveBinaryOp(String opName, Class<?> type1, Class<?> type2) {
     var stub = switch (opName) {
       case "+" -> resolveBinaryOpPlus(type1, type2);
@@ -258,6 +291,12 @@ class Builtin {
       case ">=" -> resolveBinaryRelation("ge", type1, type2);
       case "===" -> resolveBinaryEquality("eq", type1, type2);
       case "!==" -> resolveBinaryEquality("ne", type1, type2);
+      case "<<" -> resolveBitwiseOp("leftShift", type1, type2);
+      case ">>" -> resolveBitwiseOp("rightShift", type1, type2);
+      case ">>>" -> resolveBitwiseOp("unsignedRightShift", type1, type2);
+      case "|" -> resolveBitwiseOp("bitwiseOr", type1, type2);
+      case "&" -> resolveBitwiseOp("bitwiseAnd", type1, type2);
+      case "^" -> resolveBitwiseOp("bitwiseXor", type1, type2);
       default -> throw new UnsupportedOperationException(type1.getName() + " " + opName + " " + type2.getName());
     };
     return stub.asType(type1, type2);
