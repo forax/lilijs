@@ -3,16 +3,19 @@ package com.github.forax.lilijs;
 import java.lang.invoke.CallSite;
 import java.lang.invoke.ConstantCallSite;
 import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.MutableCallSite;
 import java.lang.invoke.TypeDescriptor;
 
 import static java.lang.invoke.MethodHandles.constant;
+import static java.lang.invoke.MethodHandles.dropArguments;
+import static java.lang.invoke.MethodHandles.exactInvoker;
 import static java.lang.invoke.MethodHandles.foldArguments;
 import static java.lang.invoke.MethodHandles.guardWithTest;
 import static java.lang.invoke.MethodHandles.insertArguments;
 import static java.lang.invoke.MethodHandles.invoker;
+import static java.lang.invoke.MethodHandles.lookup;
 import static java.lang.invoke.MethodType.methodType;
 
 public final class RT {
@@ -20,19 +23,18 @@ public final class RT {
     throw new AssertionError();
   }
 
-  private static final class Undefined {
+  private static final class UndefinedType {
     @Override
     public String toString() {
       return "undefined";
     }
   }
 
-  static final Object UNDEFINED = new Undefined();
+  static final Object UNDEFINED = new UndefinedType();
 
-  private static final MethodHandle LOOKUP, LOOKUP_OR_FAIL, REGISTER, BIND_FUNCTION, INVOKE, LOOKUP_MH;
-
+  private static final MethodHandle LOOKUP, LOOKUP_OR_FAIL, REGISTER, BIND_FUNCTION, LOOKUP_MH;
   static {
-    var lookup = MethodHandles.lookup();
+    var lookup = lookup();
     try {
       LOOKUP = lookup.findVirtual(JSObject.class, "lookup", methodType(Object.class, String.class, Object.class));
       LOOKUP_OR_FAIL = lookup.findStatic(RT.class, "lookupOrFail", methodType(Object.class, JSObject.class, String.class));
@@ -40,32 +42,87 @@ public final class RT {
 
       BIND_FUNCTION = lookup.findStatic(RT.class, "bindFunction", methodType(Object.class, String.class, MethodHandle.class, Object[].class));
 
-      INVOKE = lookup.findVirtual(JSFunction.class, "invoke", methodType(Object.class, Object.class, Object[].class));
-
       LOOKUP_MH = lookup.findStatic(RT.class, "lookupMethodHandle", methodType(MethodHandle.class, JSObject.class, String.class));
     } catch (NoSuchMethodException | IllegalAccessException e) {
       throw new AssertionError(e);
     }
   }
 
-  public static Object bsm_undefined(MethodHandles.Lookup lookup, String debugName, Class<?> type) {
+  public static Object bsm_undefined(Lookup lookup, String debugName, Class<?> type) {
     return UNDEFINED;
   }
 
-  public static Object bsm_bool(MethodHandles.Lookup lookup, String debugName, Class<?> type, Object constant) {
+  public static Object bsm_bool(Lookup lookup, String debugName, Class<?> type, Object constant) {
     return (int) constant == 1;
   }
 
-  public static Object bsm_const(MethodHandles.Lookup lookup, String debugName, Class<?> type, Object constant) {
+  public static Object bsm_const(Lookup lookup, String debugName, Class<?> type, Object constant) {
     return constant;
   }
 
-  public static CallSite bsm_call(MethodHandles.Lookup lookup, String debugName, MethodType type) {
-    var target = INVOKE.asType(type);
-    return new ConstantCallSite(target);
+  public static CallSite bsm_call(Lookup lookup, String debugName, MethodType type) {
+    return new CallIC(type);
   }
 
-  public static CallSite bsm_builtin(MethodHandles.Lookup lookup, String name, MethodType type, String opName) {
+  // speculate that the callee is always the same
+  // revert to use JSFunction.invoke otherwise
+  private static final class CallIC extends MutableCallSite {
+    private static final MethodHandle SLOW_PATH, FALLBACK, INVOKE, CHECK;
+    static {
+      var lookup = lookup();
+      try {
+        SLOW_PATH = lookup.findVirtual(CallIC.class, "slowPath", methodType(MethodHandle.class, Object.class));
+        CHECK = lookup.findStatic(CallIC.class, "check", methodType(boolean.class, Object.class, Object.class));
+        FALLBACK = lookup.findVirtual(CallIC.class, "fallback", methodType(MethodHandle.class));
+        INVOKE = lookup.findStatic(CallIC.class, "invoke", methodType(Object.class, Object.class, Object.class, Object[].class));
+      } catch (NoSuchMethodException | IllegalAccessException e) {
+        throw new AssertionError(e);
+      }
+    }
+
+    public CallIC(MethodType type) {
+      super(type);
+      var fallback = foldArguments(exactInvoker(type), SLOW_PATH.bindTo(this));
+      setTarget(fallback);
+    }
+
+    private static JSFunction checkFunction(Object callee) {
+      if (!(callee instanceof JSFunction function)) {
+        throw new Failure("not a JSFunction ! " + callee);
+      }
+      return function;
+    }
+
+    private static boolean check(Object expected, Object o) {
+      return expected == o;
+    }
+
+    private MethodHandle slowPath(Object callee) {
+      var function = checkFunction(callee);
+      var mh = function.methodHandle().asType(type().dropParameterTypes(0, 1));
+      var target = dropArguments(mh, 0, Object.class);
+      var guard = guardWithTest(
+          CHECK.bindTo(function),
+          target.asType(type()),
+          foldArguments(exactInvoker(type()), FALLBACK.bindTo(this)));
+      setTarget(guard);
+      return target;
+    }
+
+    private static Object invoke(Object callee, Object receiver, Object[] args) {
+      var function = checkFunction(callee);
+      return function.invoke(receiver, args);
+    }
+
+    private MethodHandle fallback() {
+      // revert to call JSFunction.invoke(...)
+      var target = INVOKE.asType(type());
+      setTarget(target);
+      return target;
+    }
+  }
+
+  public static CallSite bsm_builtin(Lookup lookup, String name, MethodType type, String opName) {
     return switch (name) {
       case "binary" -> new BinaryBuiltinIC(type, opName);
       case "unary" -> new UnaryBuiltinIC(type, opName);
@@ -76,7 +133,7 @@ public final class RT {
   private static final class BinaryBuiltinIC extends MutableCallSite {
     private static final MethodHandle SLOW_PATH, CHECK;
     static {
-      var lookup = MethodHandles.lookup();
+      var lookup = lookup();
       try {
         SLOW_PATH = lookup.findVirtual(BinaryBuiltinIC.class, "slowPath", methodType(MethodHandle.class, Object.class, Object.class));
         CHECK = lookup.findStatic(BinaryBuiltinIC.class, "check", methodType(boolean.class, Class.class, Class.class, Object.class, Object.class));
@@ -90,7 +147,7 @@ public final class RT {
     public BinaryBuiltinIC(MethodType type, String opName) {
       super(type);
       this.opName = opName;
-      var fallback = MethodHandles.foldArguments(MethodHandles.exactInvoker(type), SLOW_PATH.bindTo(this));
+      var fallback = foldArguments(exactInvoker(type), SLOW_PATH.bindTo(this));
       setTarget(fallback);
     }
 
@@ -108,8 +165,8 @@ public final class RT {
         setTarget(mh);
         return mh;
       }
-      var guard = MethodHandles.guardWithTest(
-          MethodHandles.insertArguments(CHECK, 0, c1, c2),
+      var guard = guardWithTest(
+          insertArguments(CHECK, 0, c1, c2),
           mh,
           new BinaryBuiltinIC(type(), opName).dynamicInvoker());
       setTarget(guard);
@@ -120,7 +177,7 @@ public final class RT {
   private static final class UnaryBuiltinIC extends MutableCallSite {
     private static final MethodHandle SLOW_PATH, CHECK;
     static {
-      var lookup = MethodHandles.lookup();
+      var lookup = lookup();
       try {
         SLOW_PATH = lookup.findVirtual(UnaryBuiltinIC.class, "slowPath", methodType(MethodHandle.class, Object.class));
         CHECK = lookup.findStatic(UnaryBuiltinIC.class, "check", methodType(boolean.class, Class.class, Object.class));
@@ -134,7 +191,7 @@ public final class RT {
     public UnaryBuiltinIC(MethodType type, String opName) {
       super(type);
       this.opName = opName;
-      var fallback = MethodHandles.foldArguments(MethodHandles.exactInvoker(type), SLOW_PATH.bindTo(this));
+      var fallback = foldArguments(exactInvoker(type), SLOW_PATH.bindTo(this));
       setTarget(fallback);
     }
 
@@ -151,8 +208,8 @@ public final class RT {
         setTarget(mh);
         return mh;
       }
-      var guard = MethodHandles.guardWithTest(
-          MethodHandles.insertArguments(CHECK, 0, c),
+      var guard = guardWithTest(
+          insertArguments(CHECK, 0, c),
           mh,
           new UnaryBuiltinIC(type(), opName).dynamicInvoker());
       setTarget(guard);
@@ -167,7 +224,7 @@ public final class RT {
     }
     return value;
   }
-  public static CallSite bsm_lookup(MethodHandles.Lookup lookup, String debugName, MethodType type, String variableName) {
+  public static CallSite bsm_lookup(Lookup lookup, String debugName, MethodType type, String variableName) {
     var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var globalEnv = classLoader.global();
     var target = insertArguments(LOOKUP_OR_FAIL, 0, globalEnv, variableName);
@@ -175,10 +232,10 @@ public final class RT {
   }
 
   private static Object bindFunction(String name, MethodHandle mh, Object... args) {
-    var target = MethodHandles.insertArguments(mh, 0, args);
+    var target = insertArguments(mh, 0, args);
     return new JSFunction(name, target);
   }
-  public static Object bsm_fndecl(MethodHandles.Lookup lookup, String debugName, TypeDescriptor typeDescriptor, int funId) {
+  public static Object bsm_fndecl(Lookup lookup, String debugName, TypeDescriptor typeDescriptor, int funId) {
     var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var global = classLoader.global();
     var fnInfo = classLoader.dict().decodeFnInfo(funId);
@@ -205,7 +262,7 @@ public final class RT {
     return jsFunction;
   }
 
-  public static CallSite bsm_register(MethodHandles.Lookup lookup, String debugName, MethodType type, String functionName) {
+  public static CallSite bsm_register(Lookup lookup, String debugName, MethodType type, String functionName) {
     //throw new UnsupportedOperationException("TODO bsm_register");
     var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var globalEnv = classLoader.global();
@@ -213,7 +270,7 @@ public final class RT {
   }
 
 
-  public static CallSite bsm_truth(MethodHandles.Lookup lookup, String debugName, MethodType type) {
+  public static CallSite bsm_truth(Lookup lookup, String debugName, MethodType type) {
     //return new ConstantCallSite(TRUTH);
     return new TruthBuiltinIC(type);
   }
@@ -224,7 +281,7 @@ public final class RT {
   private static final class TruthBuiltinIC extends MutableCallSite {
     private static final MethodHandle SLOW_PATH, FALLBACK, CHECK, CLASS_CHECK;
     static {
-      var lookup = MethodHandles.lookup();
+      var lookup = lookup();
       try {
         SLOW_PATH = lookup.findVirtual(TruthBuiltinIC.class, "slowPath", methodType(boolean.class, Object.class));
         FALLBACK = lookup.findVirtual(TruthBuiltinIC.class, "fallback", methodType(boolean.class, Object.class));
@@ -252,7 +309,7 @@ public final class RT {
       // add null check and undefined check, then the type check
       if (o == null || o == RT.UNDEFINED) {
         var guard = guardWithTest(CHECK.bindTo(o),
-            MethodHandles.dropArguments(constant(boolean.class, false), 0, Object.class),
+            dropArguments(constant(boolean.class, false), 0, Object.class),
             new TruthBuiltinIC(type()).dynamicInvoker());
         setTarget(guard);
         return false;
@@ -273,7 +330,7 @@ public final class RT {
       // add null check and undefined check in front
       if (o == null || o == RT.UNDEFINED) {
         var guard = guardWithTest(CHECK.bindTo(o),
-            MethodHandles.dropArguments(constant(boolean.class, false), 0, Object.class),
+            dropArguments(constant(boolean.class, false), 0, Object.class),
             getTarget());
         setTarget(guard);
         return false;
@@ -284,11 +341,11 @@ public final class RT {
     }
   }
 
-  public static CallSite bsm_get(MethodHandles.Lookup lookup, String debugName, MethodType type, String fieldName) {
+  public static CallSite bsm_get(Lookup lookup, String debugName, MethodType type, String fieldName) {
     return new ConstantCallSite(insertArguments(LOOKUP, 1, fieldName, UNDEFINED).asType(type));
   }
 
-  public static CallSite bsm_set(MethodHandles.Lookup lookup, String debugName, MethodType type, String fieldName) {
+  public static CallSite bsm_set(Lookup lookup, String debugName, MethodType type, String fieldName) {
     return new ConstantCallSite(insertArguments(REGISTER, 1, fieldName).asType(type));
   }
 
@@ -301,7 +358,7 @@ public final class RT {
     return function.methodHandle();
   }
 
-  public static CallSite bsm_methodcall(MethodHandles.Lookup lookup, String name, MethodType type) {
+  public static CallSite bsm_methodcall(Lookup lookup, String name, MethodType type) {
     var combiner = insertArguments(LOOKUP_MH, 1, name).asType(methodType(MethodHandle.class, Object.class));
     var target = foldArguments(invoker(type), combiner);
     return new ConstantCallSite(target);
