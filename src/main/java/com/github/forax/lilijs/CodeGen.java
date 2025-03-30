@@ -356,6 +356,11 @@ final class CodeGen {
         case Swc4jAstParenExpr parenExpr -> {
           visitVar(parenExpr.getExpr(), ctx);
         }
+        case Swc4jAstSeqExpr seqExpr -> {
+          for(var expr : seqExpr.getExprs()) {
+            visitVar(expr, ctx);
+          }
+        }
         case Swc4jAstThisExpr thisExpr -> {
           var varData = ctx.varUse("this");  // not needed
           registerVarData(thisExpr, varData);
@@ -407,7 +412,7 @@ final class CodeGen {
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
              Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
              Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
-             Swc4jAstSeqExpr _, Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
+             Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
              Swc4jAstTaggedTpl _, Swc4jAstTpl _, Swc4jAstYieldExpr _ -> {
           throw new UnsupportedOperationException("TODO " + ast.getClass().getName());
         }
@@ -676,6 +681,16 @@ final class CodeGen {
       case Swc4jAstParenExpr parenExpr -> {
         visitCode(parenExpr.getExpr());
       }
+      case Swc4jAstSeqExpr seqExpr -> {
+        var exprs = seqExpr.getExprs();
+        for (int i = 0; i < exprs.size(); i++) {
+          var expr = exprs.get(i);
+          visitCode(expr);
+          if (i != exprs.size() - 1) {
+            mv.visitInsn(POP);
+          }
+        }
+      }
       case Swc4jAstThisExpr expr -> {
         var index = varIndex(expr);
         mv.visitVarInsn(ALOAD, index);
@@ -762,7 +777,7 @@ final class CodeGen {
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
            Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
            Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
-           Swc4jAstSeqExpr _, Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
+           Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _,
            Swc4jAstTaggedTpl _, Swc4jAstTpl _, Swc4jAstYieldExpr _,
            Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _
           -> {
