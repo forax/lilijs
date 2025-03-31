@@ -89,41 +89,41 @@ We do not support BigInt at the moment, this restriction may be lifted in the fu
 
 The project has just begun, I hope to finish most of it in one year.
 
-[x] local variables
-[x] function, local function, arrow function and calls
-[x] basic numeric ops
-[x] basic control flow
-[] compound operations +=, -=, &=, etc
-[] label, break, continue in loop
-[] throw exception
-[] switch
-[] && and ||
-[] destructuring
-[] function default parameters
-[] class
-[] private properties
-[] static method and static block
-[] typeof
-[] instanceof
-[] field, '.' and '?.' access
-[] method calls
-[] object literal
-[] array literal
-[] regex literal
-[] async functions and Promise
-[] Object & Function
-[] Math
-[] JSON
-[] Errors
-[] Symbol ??
-[] imports ??
+- [x] local variables
+- [x] function, local function, arrow function and calls
+- [x] basic numeric ops
+- [x] basic control flow
+- [ ] compound operations +=, -=, &=, etc
+- [ ] label, break, continue in loop
+- [ ] throw exception
+- [ ] switch
+- [ ] && and ||
+- [ ] destructuring
+- [ ] function default parameters
+- [ ] class
+- [ ] private properties
+- [ ] static method and static block
+- [ ] typeof
+- [ ] instanceof
+- [ ] field, '.' and '?.' access
+- [ ] method calls
+- [ ] object literal
+- [ ] array literal
+- [ ] regex literal
+- [ ] async functions and Promise
+- [ ] Object & Function
+- [ ] Math
+- [ ] JSON
+- [ ] Errors
+- [ ] Symbol ??
+- [ ] imports ??
 
 ### Optimizations
 
-[x] inlining cache (IC) for function definitions
-[x] IC for call
-[x] IC for numeric ops
-[] more inlining caches :)
+- [x] inlining cache (IC) for function definitions
+- [x] IC for call
+- [x] IC for numeric ops
+- [ ] more inlining caches :)
 
 
 
