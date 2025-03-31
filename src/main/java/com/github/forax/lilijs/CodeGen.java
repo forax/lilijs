@@ -23,9 +23,7 @@ import com.caoccao.javet.swc4j.ast.expr.Swc4jAstParenExpr;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstSeqExpr;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstSpreadElement;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstSuperPropExpr;
-import com.caoccao.javet.swc4j.ast.expr.Swc4jAstTaggedTpl;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstThisExpr;
-import com.caoccao.javet.swc4j.ast.expr.Swc4jAstTpl;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstUnaryExpr;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstUpdateExpr;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstYieldExpr;
@@ -99,16 +97,21 @@ final class CodeGen {
     mv.visitLdcInsn(new ConstantDynamic("undefined", "Ljava/lang/Object;", BSM_UNDEFINED));
   }
 
+  static VarAnalyzer analyzeFunction(boolean lazy, List<String> parameters, ISwc4jAst body) {
+    var ctx = new VarContext();
+    ctx.varDef("this");
+    for (String parameter : parameters) {
+      ctx.varDef(parameter);
+    }
+    var varAnalyzer = new VarAnalyzer(lazy);
+    varAnalyzer.visitVar(body, ctx);
+    return varAnalyzer;
+  }
+
   static MethodHandle createFunctionMH(String name, List<String> parameters, ISwc4jAst body, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
     // do we need to do a data analysis ?
     if (dataMap == null) {
-      var ctx = new VarContext();
-      ctx.varDef("this");
-      for (String parameter : parameters) {
-        ctx.varDef(parameter);
-      }
-      var varAnalyzer = new VarAnalyzer();
-      varAnalyzer.visitVar(body, ctx);
+      var varAnalyzer = analyzeFunction(true, parameters, body);
       dataMap = varAnalyzer.dataMap;
     }
 
@@ -187,9 +190,13 @@ final class CodeGen {
     }
   }
 
-
   private static final class VarAnalyzer {
+    private final boolean lazy;
     private final HashMap<ISwc4jAst, Object> dataMap = new HashMap<>();
+
+    public VarAnalyzer(boolean lazy) {
+      this.lazy = lazy;
+    }
 
     private void registerVarData(ISwc4jAst ast, VarData varData) {
       dataMap.put(ast, varData);
@@ -206,8 +213,15 @@ final class CodeGen {
         }
         case ISwc4jAstProgram<?> program -> {
           for (var node : program.getBody()) {
-            if (node instanceof Swc4jAstFnDecl) {
-              // do not visit top level functions declaration, theu are initialized lazily
+            if (node instanceof Swc4jAstFnDecl fnDecl) {
+              // do not visit top level functions declaration if there are initialized lazily
+              if (!lazy) {
+                var parameters = fnDecl.getFunction().getParams().stream()
+                    .map(CodeGen::name)
+                    .toList();
+                var body = fnDecl.getFunction().getBody().orElseThrow();
+                analyzeFunction(false, parameters, body);
+              }
               continue;
             }
             visitVar(node, ctx);
