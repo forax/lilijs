@@ -6,12 +6,8 @@ Lilijs is a runtime engine dedicated to running a subset of TypeScript efficient
 
 On the backend side, an increasing number of developers are adopting TypeScript to typecheck their applications.
 TypeScript enforces stricter semantics compared to JavaScript/ECMAScript.
-For instance, this snippet is valid in JavaScript but rejected by TypeScript,
+For instance, this snippet `{} + 3` is valid in JavaScript but rejected by TypeScript,
 which requires the left operand to be either a number or a BigInt:
-
-```typescript
-{} + 3
-```
 
 ## The LiliJS Approach
 
