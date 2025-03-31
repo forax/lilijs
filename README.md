@@ -9,7 +9,7 @@ TypeScript enforces stricter semantics compared to JavaScript/ECMAScript.
 For instance, this snippet `{} + 3` is valid in JavaScript but rejected by TypeScript,
 which requires the left operand to be either a number or a BigInt:
 
-## The LiliJS Approach
+## The Lilijs Approach
 
 The core concept behind LiliJS is achieving superior performance compared to popular engines like V8 (Chrome),
 JavaScriptCore (Safari), or SpiderMonkey (Firefox) by:
