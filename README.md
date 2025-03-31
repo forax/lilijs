@@ -40,7 +40,7 @@ Here are a description of the restrictions to TypeScript Lilijs uses.
 No enum declarations, namespaces and modules with runtime code,
 parameter properties in classes, Non-ECMAScript import = and export = assignments.
 
-see [--erasablesyntaxonly](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html#the---erasablesyntaxonly-option)
+see [--erasableSyntaxOnly](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html#the---erasablesyntaxonly-option)
 for more information.
 
 ### variable
