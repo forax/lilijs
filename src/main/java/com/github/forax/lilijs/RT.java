@@ -1,5 +1,8 @@
 package com.github.forax.lilijs;
 
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstClass;
+import com.github.forax.lilijs.JSFunction.MethodHandleProvider;
+
 import java.lang.invoke.CallSite;
 import java.lang.invoke.ConstantCallSite;
 import java.lang.invoke.MethodHandle;
@@ -31,6 +34,17 @@ public final class RT {
   }
 
   static final Object UNDEFINED = new UndefinedType();
+
+  private static final ClassValue<JSObject> PROTOTYPES = new ClassValue<>() {
+    @Override
+    protected JSObject computeValue(Class<?> type) {
+      return new JSObject(null);
+    }
+  };
+
+  static JSObject prototype(Class<?> jsClass) {
+    return PROTOTYPES.get(jsClass);
+  }
 
   private static final MethodHandle LOOKUP, LOOKUP_OR_FAIL, REGISTER, BIND_FUNCTION, LOOKUP_MH;
   static {
@@ -238,25 +252,29 @@ public final class RT {
   public static Object bsm_fndecl(Lookup lookup, String debugName, TypeDescriptor typeDescriptor, int funId) {
     var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var global = classLoader.global();
-    var fnInfo = classLoader.dict().decodeFnInfo(funId);
-    var name = fnInfo.name();
-    var parameters = fnInfo.parameters();
-    var body = fnInfo.body();
-    var dataMap = fnInfo.dataMap();
+    var info = classLoader.dict().decodeInfo(funId);
+    var name = info.name();
+    var toplevel = info.toplevel();
+    var parameters = info.parameters();
+    var body = info.body();
+    var dataMap = info.dataMap();
+    var captureCount = typeDescriptor instanceof MethodType type ? type.parameterCount() : 0;
+    MethodHandleProvider provider = body instanceof Swc4jAstClass astClass ?
+      () -> CodeGen.createClassFunctionMH(name, astClass, captureCount, dataMap, global) :
+      () -> CodeGen.createFunctionMH(name, parameters, body, captureCount, dataMap, global);
 
     // Is it an invokedynamic with captured arguments ?
     if (typeDescriptor instanceof MethodType type) {
       // direct allocation
-      var captureCount = type.parameterCount();
-      var mh = CodeGen.createFunctionMH(name, parameters, body, captureCount, dataMap, global);
-      var target = insertArguments(BIND_FUNCTION, 0, fnInfo.name(), mh);
+      var mh = provider.provide();
+      var target = insertArguments(BIND_FUNCTION, 0, name, mh);
       target = target.withVarargs(true).asType(type);
       return new ConstantCallSite(target);
     }
 
     // it's a constant dynamic => lazy allocation
-    var jsFunction = new JSFunction(name, () -> CodeGen.createFunctionMH(name, parameters, body, 0, dataMap, global));
-    if (fnInfo.toplevel()) {  // register to global
+    var jsFunction = new JSFunction(name, provider);
+    if (toplevel) {  // register to global
       global.register(jsFunction.name(), jsFunction);
     }
     return jsFunction;
@@ -342,11 +360,108 @@ public final class RT {
   }
 
   public static CallSite bsm_get(Lookup lookup, String debugName, MethodType type, String fieldName) {
-    return new ConstantCallSite(insertArguments(LOOKUP, 1, fieldName, UNDEFINED).asType(type));
+    return new FieldGetIC(type, lookup, fieldName);
+  }
+  private static final class FieldGetIC extends MutableCallSite {
+    private static final MethodHandle SLOW_PATH, CHECK;
+    static {
+      var lookup = lookup();
+      try {
+        SLOW_PATH = lookup.findVirtual(FieldGetIC.class, "slowPath", methodType(MethodHandle.class, Object.class));
+        CHECK = lookup.findStatic(FieldGetIC.class, "check", methodType(boolean.class, Class.class, Object.class));
+      } catch (NoSuchMethodException | IllegalAccessException e) {
+        throw new AssertionError(e);
+      }
+    }
+
+    private final Lookup lookup;
+    private final String fieldName;
+
+    public FieldGetIC(MethodType type, Lookup lookup, String fieldName) {
+      super(type);
+      this.lookup = lookup;
+      this.fieldName = fieldName;
+      var fallback = foldArguments(exactInvoker(type), SLOW_PATH.bindTo(this));
+      setTarget(fallback);
+    }
+
+    private static boolean check(Class<?> c, Object o) {
+      return o!= null && o.getClass() == c;
+    }
+
+    @SuppressWarnings("unused")  // called by a MH
+    private MethodHandle slowPath(Object o) throws IllegalAccessException {
+      if (o == null) {
+        throw new Failure("reference is null");
+      }
+      var receiver = o.getClass();
+      MethodHandle mh;
+      try {
+        mh = lookup.findGetter(receiver, fieldName, Object.class);
+      } catch (NoSuchFieldException e) {
+        throw new Failure("no field '" + fieldName + "' found in " + receiver.getSimpleName(), e);
+      }
+      var target = mh.asType(type());
+      var guard = guardWithTest(
+          insertArguments(CHECK, 0, receiver),
+          target,
+          new FieldGetIC(type(), lookup, fieldName).dynamicInvoker());
+      setTarget(guard);
+      return target;
+    }
   }
 
+
   public static CallSite bsm_set(Lookup lookup, String debugName, MethodType type, String fieldName) {
-    return new ConstantCallSite(insertArguments(REGISTER, 1, fieldName).asType(type));
+    return new FieldSetIC(type, lookup, fieldName);
+  }
+  private static final class FieldSetIC extends MutableCallSite {
+    private static final MethodHandle SLOW_PATH, CHECK;
+    static {
+      var lookup = lookup();
+      try {
+        SLOW_PATH = lookup.findVirtual(FieldSetIC.class, "slowPath", methodType(MethodHandle.class, Object.class));
+        CHECK = lookup.findStatic(FieldSetIC.class, "check", methodType(boolean.class, Class.class, Object.class));
+      } catch (NoSuchMethodException | IllegalAccessException e) {
+        throw new AssertionError(e);
+      }
+    }
+
+    private final Lookup lookup;
+    private final String fieldName;
+
+    public FieldSetIC(MethodType type, Lookup lookup, String fieldName) {
+      super(type);
+      this.lookup = lookup;
+      this.fieldName = fieldName;
+      var fallback = foldArguments(exactInvoker(type), SLOW_PATH.bindTo(this));
+      setTarget(fallback);
+    }
+
+    private static boolean check(Class<?> c, Object o) {
+      return o!= null && o.getClass() == c;
+    }
+
+    @SuppressWarnings("unused")  // called by a MH
+    private MethodHandle slowPath(Object o) throws IllegalAccessException {
+      if (o == null) {
+        throw new Failure("reference is null");
+      }
+      var receiver = o.getClass();
+      MethodHandle mh;
+      try {
+        mh = lookup.findSetter(receiver, fieldName, Object.class);
+      } catch (NoSuchFieldException e) {
+        throw new Failure("no field '" + fieldName + "' found in " + receiver.getSimpleName(), e);
+      }
+      var target = mh.asType(type());
+      var guard = guardWithTest(
+          insertArguments(CHECK, 0, receiver),
+          target,
+          new FieldGetIC(type(), lookup, fieldName).dynamicInvoker());
+      setTarget(guard);
+      return target;
+    }
   }
 
   @SuppressWarnings("unused")  // used by a method handle

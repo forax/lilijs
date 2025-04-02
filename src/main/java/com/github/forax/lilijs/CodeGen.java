@@ -1,9 +1,17 @@
 package com.github.forax.lilijs;
 
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstAutoAccessor;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstClass;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstClassMethod;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstClassProp;
 import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstComputedPropName;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstConstructor;
 import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstFunction;
 import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstParam;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstPrivateMethod;
 import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstPrivateName;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstPrivateProp;
+import com.caoccao.javet.swc4j.ast.clazz.Swc4jAstStaticBlock;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstArrowExpr;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstAssignExpr;
 import com.caoccao.javet.swc4j.ast.expr.Swc4jAstAwaitExpr;
@@ -42,6 +50,9 @@ import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstMemberProp;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstPat;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstProgram;
 
+import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstPropName;
+import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstTsType;
+import com.caoccao.javet.swc4j.ast.pat.Swc4jAstArrayPat;
 import com.caoccao.javet.swc4j.ast.pat.Swc4jAstBindingIdent;
 import com.caoccao.javet.swc4j.ast.pat.Swc4jAstObjectPat;
 import com.caoccao.javet.swc4j.ast.pat.Swc4jAstRestPat;
@@ -68,6 +79,8 @@ import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstVarDecl;
 import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstVarDeclarator;
 import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstWhileStmt;
 import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstWithStmt;
+import com.caoccao.javet.swc4j.ast.ts.Swc4jAstTsIndexSignature;
+import com.caoccao.javet.swc4j.ast.ts.Swc4jAstTsKeywordType;
 import com.github.forax.lilijs.VarContext.VarData;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
@@ -76,6 +89,7 @@ import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.util.CheckClassAdapter;
+import org.objectweb.asm.util.TraceClassVisitor;
 
 import java.io.PrintWriter;
 import java.lang.invoke.CallSite;
@@ -86,7 +100,9 @@ import java.lang.invoke.TypeDescriptor;
 import java.util.HashMap;
 import java.util.List;
 
+import static java.lang.invoke.MethodHandles.dropArguments;
 import static java.lang.invoke.MethodType.genericMethodType;
+import static java.lang.invoke.MethodType.methodType;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.stream.Collectors.partitioningBy;
 import static org.objectweb.asm.Opcodes.*;
@@ -123,15 +139,14 @@ final class CodeGen {
     var desc = methodType.toMethodDescriptorString();
     var mv = cv.visitMethod(ACC_PUBLIC | ACC_STATIC, name, desc, null, null);
     mv.visitCode();
-
     var dict = new Dict();
     new CodeGen(mv, dict, dataMap).visitCode(body);
-
     ldcUndefined(mv);
     mv.visitInsn(ARETURN);
     mv.visitMaxs(0, 0);
     mv.visitEnd();
 
+    cv.visitEnd();
     var instrs = cv.toByteArray();
     dumpBytecode(instrs);
 
@@ -145,6 +160,49 @@ final class CodeGen {
       throw new AssertionError(e);
     }
 
+    return mh;
+  }
+
+  static MethodHandle createClassFunctionMH(String name, Swc4jAstClass astClass, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
+    var cv = new ClassWriter(/*ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES*/ 0);
+    cv.visit(V21, ACC_PUBLIC | ACC_SUPER, name, null, "java/lang/Object", null);
+    cv.visitSource("script", null);
+
+    var init = cv.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+    init.visitCode();
+    init.visitVarInsn(ALOAD, 0);
+    init.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+    init.visitInsn(RETURN);
+    init.visitMaxs(1, 1);
+    init.visitEnd();
+
+    for(var member : astClass.getBody()) {
+      switch (member) {
+        case Swc4jAstClassProp prop -> {
+          var key = name(prop.getKey());
+          //var type = prop.getTypeAnn().map(ann -> type(ann.getTypeAnn())).orElse(Type.ANY);
+          var fv = cv.visitField(ACC_PUBLIC, key, "Ljava/lang/Object;", null, null);
+          fv.visitEnd();
+        }
+        case Swc4jAstAutoAccessor _, Swc4jAstConstructor _, Swc4jAstEmptyStmt _, Swc4jAstClassMethod _,
+             Swc4jAstPrivateMethod _, Swc4jAstPrivateProp _, Swc4jAstStaticBlock _, Swc4jAstTsIndexSignature _ -> {}
+        default -> throw new AssertionError("unknown member " + member);
+      }
+    }
+
+    var instrs = cv.toByteArray();
+    dumpClass(instrs);
+
+    var classLoader = new IsolateClassLoader(new Dict(), global);
+    var type = classLoader.createClass(name, instrs);
+
+    MethodHandle mh;
+    try {
+      mh = MethodHandles.lookup().findConstructor(type, methodType(void.class));
+    } catch (NoSuchMethodException | IllegalAccessException e) {
+      throw new AssertionError(e);
+    }
+    mh = dropArguments(mh, 0, Object.class);
     return mh;
   }
 
@@ -166,11 +224,42 @@ final class CodeGen {
       default -> throw new AssertionError(prop);
     };
   }
+  private static String name(ISwc4jAstPropName propName) {
+    return switch (propName) {
+      case Swc4jAstIdentName identName -> identName.getSym();
+      default -> throw new AssertionError(propName);
+    };
+  }
   private static String name(ISwc4jAstAssignTarget assignTarget) {
     return switch (assignTarget) {
       case Swc4jAstBindingIdent ident -> ident.getId().getSym();
       default -> throw new AssertionError(assignTarget);
     };
+  }
+
+  private enum Type { ANY, BOOLEAN, NUMBER, STRING }
+
+  private static Type type(ISwc4jAstTsType astType) {
+    return switch (astType) {
+      case Swc4jAstTsKeywordType keywordType -> switch (keywordType.getType()) {
+        case Bool -> Type.BOOLEAN;
+        case Number -> Type.NUMBER;
+        case Str -> Type.STRING;
+        default -> Type.ANY;
+      };
+      default -> throw new UnsupportedOperationException("type " + astType);
+    };
+  }
+
+  private static List<String> parameters(List<Swc4jAstParam> params) {
+    return params.stream()
+        .map(CodeGen::name)
+        .toList();
+  }
+  private static List<String> arrowParameters(List<ISwc4jAstPat> params) {
+    return params.stream()
+        .map(CodeGen::name)
+        .toList();
   }
 
   private static void checkFunctionSupported(Swc4jAstFunction function) {
@@ -213,18 +302,20 @@ final class CodeGen {
         }
         case ISwc4jAstProgram<?> program -> {
           for (var node : program.getBody()) {
-            if (node instanceof Swc4jAstFnDecl fnDecl) {
-              // do not visit top level functions declaration if there are initialized lazily
-              if (!lazy) {
-                var parameters = fnDecl.getFunction().getParams().stream()
-                    .map(CodeGen::name)
-                    .toList();
-                var body = fnDecl.getFunction().getBody().orElseThrow();
-                analyzeFunction(false, parameters, body);
+            switch (node) {
+              case Swc4jAstFnDecl fnDecl -> {
+                // do not visit top level functions declaration if there are initialized lazily
+                if (!lazy) {
+                  var parameters = parameters(fnDecl.getFunction().getParams());
+                  var body = fnDecl.getFunction().getBody().orElseThrow();
+                  analyzeFunction(false, parameters, body);
+                }
               }
-              continue;
+              case Swc4jAstClassDecl classDecl -> {
+                // do not visit top level class declarations if there are initialized lazily
+              }
+              default -> visitVar(node, ctx);
             }
-            visitVar(node, ctx);
           }
         }
         case Swc4jAstBlockStmt blockStmt -> {
@@ -258,9 +349,7 @@ final class CodeGen {
           }
           registerVarData(fnDecl, new VarData.Local(index, ctx.captureInfo));
 
-          var parameters = fnDecl.getFunction().getParams().stream()
-              .map(CodeGen::name)
-              .toList();
+          var parameters = parameters(fnDecl.getFunction().getParams());
           var body = fnDecl.getFunction().getBody().orElseThrow();
           var newCtx = ctx.newCaptureContext();
           newCtx.localCount++;   // "this" should be captured, function still has a first parameter
@@ -270,9 +359,7 @@ final class CodeGen {
         }
         case Swc4jAstArrowExpr arrowExpr -> {
           checkFunctionSupported(arrowExpr);
-          var parameters = arrowExpr.getParams().stream()
-              .map(CodeGen::name)
-              .toList();
+          var parameters = arrowParameters(arrowExpr.getParams());
           var body = arrowExpr.getBody();
           var newCtx = ctx.newCaptureContext();
           newCtx.varDef("this");
@@ -282,9 +369,7 @@ final class CodeGen {
         }
         case Swc4jAstFnExpr fnExpr -> {
           checkFunctionSupported(fnExpr.getFunction());
-          var parameters = fnExpr.getFunction().getParams().stream()
-              .map(CodeGen::name)
-              .toList();
+          var parameters = parameters(fnExpr.getFunction().getParams());
           var bodyOpt = fnExpr.getFunction().getBody();
           var newCtx = ctx.newCaptureContext();
           newCtx.varDef("this");
@@ -297,14 +382,32 @@ final class CodeGen {
         case Swc4jAstFunction _ -> {
           throw new AssertionError();
         }
+        case Swc4jAstClassDecl classDecl -> {
+          var name = name(classDecl.getIdent());
+          var clazz = classDecl.getClazz();
+          for(var member : clazz.getBody()) {
+            switch (member) {
+              case Swc4jAstClassProp _,  Swc4jAstClassMethod _ -> {
+                // ok
+              }
+              default -> throw new UnsupportedOperationException("TODO " + member);
+            }
+          }
+
+        }
         case Swc4jAstVarDecl varDecl -> {
           switch (varDecl.getKind()) {
             case Var -> throw new UnsupportedOperationException("declaration using var is not supported");
-            case Const, Let -> {
-            }
+            case Const, Let -> {}
           }
           for (var varDeclarator : varDecl.getDecls()) {
             visitVar(varDeclarator, ctx);
+          }
+        }
+        case Swc4jAstNewExpr newExpr -> {
+          visitVar(newExpr.getCallee(), ctx);
+          for(var arg : newExpr.getArgs().orElse(List.of())) {
+            visitVar(arg, ctx);
           }
         }
         case Swc4jAstVarDeclarator varDeclarator -> {
@@ -321,12 +424,22 @@ final class CodeGen {
         }
         case Swc4jAstAssignExpr assignExpr -> {
           visitVar(assignExpr.getRight(), ctx);
-          var name = name(assignExpr.getLeft());
-          var varData = ctx.varUse(name);
-          switch (varData) {
-            case VarData.Local _ -> registerVarData(assignExpr, varData);
-            case VarData.Capture _ -> throw new UnsupportedOperationException("can not assign a captured value " + name);
-            case VarData.Global _ -> throw new Failure("unknown local variable " + name);
+          var left = assignExpr.getLeft();
+          switch (left) {
+            case Swc4jAstBindingIdent ident -> {  // local write
+              var name = name(ident);
+              var varData = ctx.varUse(name);
+              switch (varData) {
+                case VarData.Local _ -> registerVarData(assignExpr, varData);
+                case VarData.Capture _ -> throw new UnsupportedOperationException("can not assign a captured value " + name);
+                case VarData.Global _ -> throw new Failure("unknown local variable " + name);
+              }
+            }
+            case Swc4jAstMemberExpr memberExpr -> {  // field write
+              var name = name(memberExpr.getProp());
+              visitVar(memberExpr.getObj(), ctx);
+            }
+            default -> throw new UnsupportedOperationException("unsupported " + left);
           }
         }
         case Swc4jAstUpdateExpr updateExpr -> {
@@ -418,12 +531,12 @@ final class CodeGen {
           }
         }
         case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
-             Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
+             Swc4jAstDebuggerStmt _,
              Swc4jAstForInStmt _, Swc4jAstForOfStmt _,
              Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
              Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
-             Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
+             Swc4jAstMetaPropExpr _, Swc4jAstOptChainExpr _,
              Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _, Swc4jAstYieldExpr _,
              Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _ -> {
           throw new UnsupportedOperationException("TODO " + ast.getClass().getName());
@@ -436,6 +549,11 @@ final class CodeGen {
   private static void dumpBytecode(byte[] array) {
     var reader = new ClassReader(array);
     CheckClassAdapter.verify(reader, true, new PrintWriter(System.err, false, UTF_8));
+  }
+
+  private static void dumpClass(byte[] array) {
+    var reader = new ClassReader(array);
+    reader.accept(new TraceClassVisitor(new PrintWriter(System.err)), 0);
   }
 
   private static Handle bsm(String name, Class<?> returnType, Class<?>... parameterTypes) {
@@ -486,16 +604,16 @@ final class CodeGen {
   }
 
   private void emitFonctionCreation(String name, List<String> parameters, ISwc4jAst body, boolean toplevel, List<Integer> captures) {
-    var functionInfo = new Dict.FnInfo(toplevel, name, parameters, body, toplevel ? null : dataMap);
-    var fnInfoId = dict.encodeFnInfo(functionInfo);
+    var functionInfo = new Dict.Info(toplevel, name, parameters, body, toplevel ? null : dataMap);
+    var infoId = dict.encodeInfo(functionInfo);
     if (captures.isEmpty()) {
-      mv.visitLdcInsn(new ConstantDynamic(name, "Ljava/lang/Object;", BSM_FNDECL, fnInfoId));
+      mv.visitLdcInsn(new ConstantDynamic(name, "Ljava/lang/Object;", BSM_FNDECL, infoId));
     } else {
       for(var varIndex : captures) {
         mv.visitVarInsn(ALOAD, varIndex);
       }
       var desc = "(" + "Ljava/lang/Object;".repeat(captures.size()) + ")Ljava/lang/Object;";
-      mv.visitInvokeDynamicInsn(name, desc, BSM_FNDECL, fnInfoId);
+      mv.visitInvokeDynamicInsn(name, desc, BSM_FNDECL, infoId);
     }
   }
 
@@ -524,11 +642,11 @@ final class CodeGen {
       case ISwc4jAstProgram<?> program -> {
         var body = program.getBody();
         var partition = body.stream()
-            .collect(partitioningBy(node -> node instanceof Swc4jAstFnDecl));
-        // first, visit function declarations
-        for(var fnDecl : partition.get(true)) {
-          emitLine(fnDecl);
-          visitCode(fnDecl);
+            .collect(partitioningBy(node -> node instanceof Swc4jAstFnDecl || node instanceof Swc4jAstClassDecl));
+        // first, visit function and class declarations
+        for(var fnOrClDecl : partition.get(true)) {
+          emitLine(fnOrClDecl);
+          visitCode(fnOrClDecl);
         }
         // then visit all other nodes
         for(var node : partition.get(false)) {
@@ -566,9 +684,7 @@ final class CodeGen {
       }
       case Swc4jAstFnDecl fnDecl -> {
         var name = fnDecl.getIdent().getSym();
-        var parameters = fnDecl.getFunction().getParams().stream()
-            .map(CodeGen::name)
-            .toList();
+        var parameters = parameters(fnDecl.getFunction().getParams());
         var body = fnDecl.getFunction().getBody().orElseThrow();  // FIXME ?
         var toplevel = !dataMap.containsKey(fnDecl.getFunction());
         var captures = toplevel ? List.<Integer>of() : captureInfo(fnDecl.getFunction()).captures();
@@ -582,9 +698,7 @@ final class CodeGen {
       }
       case Swc4jAstArrowExpr arrowExpr -> {
         var captures = captureInfo(arrowExpr).captures();
-        var parameters = arrowExpr.getParams().stream()
-            .map(CodeGen::name)
-            .toList();
+        var parameters = arrowParameters(arrowExpr.getParams());
         var body = switch (arrowExpr.getBody()) {
           case Swc4jAstBlockStmt stmt -> stmt;
           case ISwc4jAstExpr expr -> new Swc4jAstReturnStmt(expr, expr.getSpan());
@@ -595,14 +709,34 @@ final class CodeGen {
       case Swc4jAstFnExpr fnExpr -> {
         var captures = captureInfo(fnExpr).captures();
         var name = fnExpr.getIdent().map(Swc4jAstIdent::getSym).orElse("anonymous");
-        var parameters = fnExpr.getFunction().getParams().stream()
-            .map(CodeGen::name)
-            .toList();
+        var parameters = parameters(fnExpr.getFunction().getParams());
         var body = fnExpr.getFunction().getBody().orElseThrow();  // FIXME ?
         emitFonctionCreation(name, parameters, body, false, captures);
       }
       case Swc4jAstFunction _ -> {
         throw new AssertionError();
+      }
+      case Swc4jAstClassDecl classDecl -> {
+        var name = name(classDecl.getIdent());
+        var toplevel = !dataMap.containsKey(classDecl.getClazz());
+        var captures = toplevel ? List.<Integer>of() : captureInfo(classDecl.getClazz()).captures();
+        emitFonctionCreation(name, List.of(), classDecl.getClazz(), toplevel, captures);
+        if (toplevel) {
+          mv.visitInsn(POP);
+        } else {
+          var varIndex = varIndex(classDecl);
+          mv.visitVarInsn(ASTORE, varIndex);
+        }
+      }
+      case Swc4jAstNewExpr newExpr -> {
+        visitCode(newExpr.getCallee());
+        ldcUndefined(mv);
+        var args = newExpr.getArgs().orElse(List.of());
+        for(var arg : args) {
+          visitCode(arg);
+        }
+        var desc = "(" + "Ljava/lang/Object;".repeat(2 + args.size()) + ")Ljava/lang/Object;";
+        mv.visitInvokeDynamicInsn("call", desc, BSM_CALL);
       }
       case Swc4jAstVarDecl varDecl -> {
         switch (varDecl.getKind()) {
@@ -624,10 +758,24 @@ final class CodeGen {
         mv.visitVarInsn(ASTORE, varIndex);
       }
       case Swc4jAstAssignExpr assignExpr -> {
-        visitCode(assignExpr.getRight());
-        mv.visitInsn(DUP);
-        var varIndex = varIndex(assignExpr);
-        mv.visitVarInsn(ASTORE, varIndex);
+        var left = assignExpr.getLeft();
+        switch (left) {
+          case Swc4jAstBindingIdent _ -> {  // local write
+            visitCode(assignExpr.getRight());
+            mv.visitInsn(DUP);
+            var varIndex = varIndex(assignExpr);
+            mv.visitVarInsn(ASTORE, varIndex);
+          }
+          case Swc4jAstMemberExpr memberExpr -> {  // field write
+            var name = name(memberExpr.getProp());
+            visitCode(assignExpr.getRight());
+            mv.visitInsn(DUP);
+            visitCode(memberExpr.getObj());
+            mv.visitInsn(SWAP);
+            mv.visitInvokeDynamicInsn("set", "(Ljava/lang/Object;Ljava/lang/Object;)V", BSM_SET, name);
+          }
+          default -> throw new UnsupportedOperationException("unsupported " + left);
+        }
       }
       case Swc4jAstUpdateExpr updateExpr -> {
         var varIndex = varIndex(updateExpr);
@@ -660,10 +808,11 @@ final class CodeGen {
       case Swc4jAstCallExpr callExpr -> {
         visitCode(callExpr.getCallee());
         ldcUndefined(mv);
-        for(var arg : callExpr.getArgs()) {
+        var args = callExpr.getArgs();
+        for(var arg : args) {
           visitCode(arg);
         }
-        var desc = "(" + "Ljava/lang/Object;".repeat(2 + callExpr.getArgs().size()) + ")Ljava/lang/Object;";
+        var desc = "(" + "Ljava/lang/Object;".repeat(2 + args.size()) + ")Ljava/lang/Object;";
         mv.visitInvokeDynamicInsn("call", desc, BSM_CALL);
       }
       case Swc4jAstIdent ident -> {
@@ -685,9 +834,8 @@ final class CodeGen {
         }
       }
       case Swc4jAstMemberExpr memberExpr -> {
-        var name = memberExpr.getProp();
+        var name = name(memberExpr.getProp());
         visitCode(memberExpr.getObj());
-        visitCode(memberExpr.getProp());
         mv.visitInvokeDynamicInsn("get", "(Ljava/lang/Object;)Ljava/lang/Object;", BSM_GET, name);
       }
       case Swc4jAstParenExpr parenExpr -> {
@@ -783,12 +931,12 @@ final class CodeGen {
         }
       }
       case Swc4jAstBreakStmt _, Swc4jAstContinueStmt _, Swc4jAstLabeledStmt _,
-           Swc4jAstDebuggerStmt _, Swc4jAstClassDecl _,
+           Swc4jAstDebuggerStmt _,
            Swc4jAstForInStmt _, Swc4jAstForOfStmt _,
            Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
            Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
-           Swc4jAstMetaPropExpr _, Swc4jAstNewExpr _, Swc4jAstOptChainExpr _,
+           Swc4jAstMetaPropExpr _, Swc4jAstOptChainExpr _,
            Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _, Swc4jAstYieldExpr _,
            Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _
           -> {

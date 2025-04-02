@@ -13,7 +13,7 @@ public class SequenceExpressionTest {
   private static String execute(String code) {
     var outStream = new ByteArrayOutputStream(8192);
     var printStream = new PrintStream(outStream, false, UTF_8);
-    Interpreter.interpret(code, Interpreter.Media.JAVASCRIPT, printStream);
+    Interpreter.interpret(code, printStream);
     return outStream.toString(UTF_8).replace("\r\n", "\n");
   }
 

@@ -64,7 +64,7 @@ public class LoopBench {
         //console.time('jsLoop');
         //jsLoop();
         //console.timeEnd('jsLoop');
-        """, Interpreter.Media.JAVASCRIPT, System.err);
+        """, System.err);
     JS_LOOP = jsLoop.methodHandle();
     System.err.println(new LoopBench().javaLoop());
     try {

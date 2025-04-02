@@ -18,8 +18,7 @@ public class Main {
       return;
     }
     var path = Path.of(args[0]);
-    var media = path.getFileName().toString().endsWith(".ts") ? Interpreter.Media.TYPESCRIPT : Interpreter.Media.JAVASCRIPT;
-    String code = null;
+    String code;
     try {
       code = Files.readString(path);
     } catch (IOException e) {
@@ -27,6 +26,6 @@ public class Main {
       System.exit(2);
       return;
     }
-    Interpreter.interpret(code, media, System.out);
+    Interpreter.interpret(code, System.out);
   }
 }
