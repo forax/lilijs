@@ -6,6 +6,7 @@ import com.github.forax.lilijs.JSFunction.MethodHandleProvider;
 import java.lang.invoke.CallSite;
 import java.lang.invoke.ConstantCallSite;
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.MutableCallSite;
@@ -26,7 +27,7 @@ public final class RT {
     throw new AssertionError();
   }
 
-  private static final class UndefinedType {
+  public static final class UndefinedType {
     @Override
     public String toString() {
       return "undefined";
@@ -46,18 +47,15 @@ public final class RT {
     return PROTOTYPES.get(jsClass);
   }
 
-  private static final MethodHandle LOOKUP, LOOKUP_OR_FAIL, REGISTER, BIND_FUNCTION, LOOKUP_MH;
+  private static final MethodHandle LOOKUP_OR_FAIL, BIND_FUNCTION;
   static {
     var lookup = lookup();
     try {
-      LOOKUP = lookup.findVirtual(JSObject.class, "lookup", methodType(Object.class, String.class, Object.class));
       LOOKUP_OR_FAIL = lookup.findStatic(RT.class, "lookupOrFail", methodType(Object.class, JSObject.class, String.class));
-      REGISTER = lookup.findVirtual(JSObject.class, "register", methodType(void.class, String.class, Object.class));
+      //REGISTER = lookup.findVirtual(JSObject.class, "register", methodType(void.class, String.class, Object.class));
 
       BIND_FUNCTION = lookup.findStatic(RT.class, "bindFunction", methodType(Object.class, String.class, MethodHandle.class, Object[].class));
-
-      LOOKUP_MH = lookup.findStatic(RT.class, "lookupMethodHandle", methodType(MethodHandle.class, JSObject.class, String.class));
-    } catch (NoSuchMethodException | IllegalAccessException e) {
+     } catch (NoSuchMethodException | IllegalAccessException e) {
       throw new AssertionError(e);
     }
   }
@@ -169,7 +167,6 @@ public final class RT {
       return o1 != null && o1.getClass() == c1 && o2 != null && o2.getClass() == c2;
     }
 
-    @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o1, Object o2) {
       var c1 = o1 == null ? Object.class : o1.getClass();
       var c2 = o2 == null ? Object.class : o2.getClass();
@@ -213,7 +210,6 @@ public final class RT {
       return o!= null && o.getClass() == c;
     }
 
-    @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o) {
       var c = o == null ? Object.class : o.getClass();
       var stub = Builtin.resolveUnary(opName, c);
@@ -280,16 +276,13 @@ public final class RT {
     return jsFunction;
   }
 
-  public static CallSite bsm_register(Lookup lookup, String debugName, MethodType type, String functionName) {
-    //throw new UnsupportedOperationException("TODO bsm_register");
+  /*public static CallSite bsm_register(Lookup lookup, String debugName, MethodType type, String functionName) {
     var classLoader = (IsolateClassLoader) lookup.lookupClass().getClassLoader();
     var globalEnv = classLoader.global();
     return new ConstantCallSite(insertArguments(REGISTER, 0, globalEnv, functionName));
-  }
-
+  }*/
 
   public static CallSite bsm_truth(Lookup lookup, String debugName, MethodType type) {
-    //return new ConstantCallSite(TRUTH);
     return new TruthBuiltinIC(type);
   }
 
@@ -389,7 +382,6 @@ public final class RT {
       return o!= null && o.getClass() == c;
     }
 
-    @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o) throws IllegalAccessException {
       if (o == null) {
         throw new Failure("reference is null");
@@ -442,7 +434,6 @@ public final class RT {
       return o!= null && o.getClass() == c;
     }
 
-    @SuppressWarnings("unused")  // called by a MH
     private MethodHandle slowPath(Object o) throws IllegalAccessException {
       if (o == null) {
         throw new Failure("reference is null");
@@ -464,18 +455,66 @@ public final class RT {
     }
   }
 
-  @SuppressWarnings("unused")  // used by a method handle
-  private static MethodHandle lookupMethodHandle(JSObject receiver, String fieldName) {
-    var function = (JSFunction) receiver.lookup(fieldName, null);
-    if (function == null) {
-      throw new Failure("no method " + fieldName);
-    }
-    return function.methodHandle();
+  public static CallSite bsm_methodcall(Lookup lookup, String debugName, MethodType type, String name) {
+    return new MethodCallIC(type, lookup, name);
   }
+  private static final class MethodCallIC extends MutableCallSite {
+    private static final MethodHandle SLOW_PATH, CHECK;
+    static {
+      var lookup = lookup();
+      try {
+        SLOW_PATH = lookup.findVirtual(MethodCallIC.class, "slowPath", methodType(MethodHandle.class, Object.class));
+        CHECK = lookup.findStatic(MethodCallIC.class, "check", methodType(boolean.class, Class.class, Object.class));
+      } catch (NoSuchMethodException | IllegalAccessException e) {
+        throw new AssertionError(e);
+      }
+    }
 
-  public static CallSite bsm_methodcall(Lookup lookup, String name, MethodType type) {
-    var combiner = insertArguments(LOOKUP_MH, 1, name).asType(methodType(MethodHandle.class, Object.class));
-    var target = foldArguments(invoker(type), combiner);
-    return new ConstantCallSite(target);
+    private final Lookup lookup;
+    private final String name;
+
+    public MethodCallIC(MethodType type, Lookup lookup, String name) {
+      super(type);
+      this.lookup = lookup;
+      this.name = name;
+      var fallback = foldArguments(exactInvoker(type), SLOW_PATH.bindTo(this));
+      setTarget(fallback);
+    }
+
+    private static boolean check(Class<?> c, Object o) {
+      return o!= null && o.getClass() == c;
+    }
+
+    private MethodHandle slowPath(Object o) throws IllegalAccessException {
+      if (o == null) {
+        throw new Failure("reference is null");
+      }
+      var receiver = o.getClass();
+      MethodHandle getter;
+      try {
+        getter = lookup.findGetter(receiver, name, Object.class);
+      } catch (NoSuchFieldException e) {
+        getter = null;
+      }
+      MethodHandle target;
+      if (getter != null) {  // field access
+        var call = new CallIC(type().insertParameterTypes(0, Object.class)).dynamicInvoker();
+        target = MethodHandles.foldArguments(call, getter.asType(methodType(Object.class, Object.class)));
+      } else {  // direct method call
+        var prototype = prototype(receiver);
+        var maybeFunction = prototype.lookup(name, null);
+        if (!(maybeFunction instanceof JSFunction function)) {
+          throw new Failure("no method named " + name + " in " + receiver.getSimpleName());
+        }
+        var mh = function.methodHandle();
+        target = mh.asType(type());
+      }
+      var guard = guardWithTest(
+          insertArguments(CHECK, 0, receiver),
+          target,
+          new MethodCallIC(type(), lookup, name).dynamicInvoker());
+      setTarget(guard);
+      return target;
+    }
   }
 }

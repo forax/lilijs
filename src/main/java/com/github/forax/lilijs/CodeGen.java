@@ -97,6 +97,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.TypeDescriptor;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -163,19 +164,17 @@ final class CodeGen {
     return mh;
   }
 
-  static MethodHandle createClassFunctionMH(String name, Swc4jAstClass astClass, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
+  static MethodHandle createClassFunctionMH(String className, Swc4jAstClass astClass, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
     var cv = new ClassWriter(/*ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES*/ 0);
-    cv.visit(V21, ACC_PUBLIC | ACC_SUPER, name, null, "java/lang/Object", null);
+    cv.visit(V21, ACC_PUBLIC | ACC_SUPER, className, null, "java/lang/Object", null);
     cv.visitSource("script", null);
 
     var init = cv.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
     init.visitCode();
     init.visitVarInsn(ALOAD, 0);
     init.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
-    init.visitInsn(RETURN);
-    init.visitMaxs(1, 1);
-    init.visitEnd();
 
+    var methods = new ArrayList<JSFunction>();
     for(var member : astClass.getBody()) {
       switch (member) {
         case Swc4jAstClassProp prop -> {
@@ -183,18 +182,42 @@ final class CodeGen {
           //var type = prop.getTypeAnn().map(ann -> type(ann.getTypeAnn())).orElse(Type.ANY);
           var fv = cv.visitField(ACC_PUBLIC, key, "Ljava/lang/Object;", null, null);
           fv.visitEnd();
+          init.visitVarInsn(ALOAD, 0);
+          ldcUndefined(init);
+          init.visitFieldInsn(PUTFIELD, className, key, "Ljava/lang/Object;");
         }
-        case Swc4jAstAutoAccessor _, Swc4jAstConstructor _, Swc4jAstEmptyStmt _, Swc4jAstClassMethod _,
-             Swc4jAstPrivateMethod _, Swc4jAstPrivateProp _, Swc4jAstStaticBlock _, Swc4jAstTsIndexSignature _ -> {}
+        case Swc4jAstClassMethod method -> {
+          checkFunctionSupported(method.getFunction());
+          var name = name(method.getKey());
+          var parameters = parameters(method.getFunction().getParams());
+          var body = method.getFunction().getBody().orElseThrow();
+          // lazy creation
+          var function = new JSFunction(name, () -> createFunctionMH(name, parameters, body, captureCount, dataMap, global));
+          methods.add(function);
+        }
+        case Swc4jAstAutoAccessor _, Swc4jAstConstructor _, Swc4jAstEmptyStmt _,
+             Swc4jAstPrivateMethod _, Swc4jAstPrivateProp _, Swc4jAstStaticBlock _, Swc4jAstTsIndexSignature _ -> {
+          throw new UnsupportedOperationException("unsupported member " + member);
+        }
         default -> throw new AssertionError("unknown member " + member);
       }
     }
+
+    init.visitInsn(RETURN);
+    init.visitMaxs(2, 1);
+    init.visitEnd();
 
     var instrs = cv.toByteArray();
     dumpClass(instrs);
 
     var classLoader = new IsolateClassLoader(new Dict(), global);
-    var type = classLoader.createClass(name, instrs);
+    var type = classLoader.createClass(className, instrs);
+
+    // add methods to the class prototype
+    var prototype = RT.prototype(type);
+    for(var method : methods) {
+      prototype.register(method.name(), method);
+    }
 
     MethodHandle mh;
     try {
@@ -570,11 +593,11 @@ final class CodeGen {
   private static final Handle BSM_LOOKUP = bsm("bsm_lookup", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
   private static final Handle BSM_CALL = bsm("bsm_call", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class);
   private static final Handle BSM_BUILTIN = bsm("bsm_builtin", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
-  private static final Handle BSM_REGISTER = bsm("bsm_register", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
+  //private static final Handle BSM_REGISTER = bsm("bsm_register", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
   private static final Handle BSM_TRUTH = bsm("bsm_truth", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class);
   private static final Handle BSM_GET = bsm("bsm_get", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
   private static final Handle BSM_SET = bsm("bsm_set", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
-  private static final Handle BSM_METHODCALL = bsm("bsm_methodcall", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class);
+  private static final Handle BSM_METHODCALL = bsm("bsm_methodcall", CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, String.class);
 
   private final MethodVisitor mv;
   private final Dict dict;
@@ -806,9 +829,22 @@ final class CodeGen {
         mv.visitInvokeDynamicInsn("unary", "(Ljava/lang/Object;)Ljava/lang/Object;", BSM_BUILTIN, opName);
       }
       case Swc4jAstCallExpr callExpr -> {
+        var callee = callExpr.getCallee();
+        var args = callExpr.getArgs();
+        if (callee instanceof Swc4jAstMemberExpr memberExpr) {  // method call
+          var obj = memberExpr.getObj();
+          var name = name(memberExpr.getProp());
+          visitCode(obj);
+          for(var arg : args) {
+            visitCode(arg);
+          }
+          var desc = "(" + "Ljava/lang/Object;".repeat(1 + args.size()) + ")Ljava/lang/Object;";
+          mv.visitInvokeDynamicInsn("methodcall", desc, BSM_METHODCALL, name);
+          return;
+        }
+        // function call
         visitCode(callExpr.getCallee());
         ldcUndefined(mv);
-        var args = callExpr.getArgs();
         for(var arg : args) {
           visitCode(arg);
         }
