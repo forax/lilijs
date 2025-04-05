@@ -700,11 +700,11 @@ final class CodeGen {
       case ISwc4jAstProgram<?> program -> {
         var body = program.getBody();
         var partition = body.stream()
-            .collect(partitioningBy(node -> node instanceof Swc4jAstFnDecl || node instanceof Swc4jAstClassDecl));
-        // first, visit function and class declarations
-        for(var fnOrClDecl : partition.get(true)) {
-          emitLine(fnOrClDecl);
-          visitCode(fnOrClDecl);
+            .collect(partitioningBy(node -> node instanceof Swc4jAstFnDecl));
+        // first, visit function declarations
+        for(var fnDecl : partition.get(true)) {
+          emitLine(fnDecl);
+          visitCode(fnDecl);
         }
         // then visit all other nodes
         for(var node : partition.get(false)) {

@@ -27,6 +27,14 @@ public class ClassTest {
   }
 
   @Test
+  public void testClassesAreNotHoisted() {
+    assertThrows(Failure.class, () -> execute("""
+        print(Foo);
+        class Foo {}
+        """));
+  }
+
+  @Test
   public void testClassPropertyAssignment() {
     var result = execute("""
         class User {
