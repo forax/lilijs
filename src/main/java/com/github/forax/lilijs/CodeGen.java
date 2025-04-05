@@ -47,6 +47,7 @@ import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAst;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstAssignTarget;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstExpr;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstMemberProp;
+import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstParamOrTsParamProp;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstPat;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstProgram;
 
@@ -81,6 +82,7 @@ import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstWhileStmt;
 import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstWithStmt;
 import com.caoccao.javet.swc4j.ast.ts.Swc4jAstTsIndexSignature;
 import com.caoccao.javet.swc4j.ast.ts.Swc4jAstTsKeywordType;
+import com.caoccao.javet.swc4j.ast.ts.Swc4jAstTsParamProp;
 import com.github.forax.lilijs.VarContext.VarData;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
@@ -102,13 +104,18 @@ import java.util.HashMap;
 import java.util.List;
 
 import static java.lang.invoke.MethodHandles.dropArguments;
+import static java.lang.invoke.MethodHandles.foldArguments;
+import static java.lang.invoke.MethodHandles.identity;
 import static java.lang.invoke.MethodType.genericMethodType;
 import static java.lang.invoke.MethodType.methodType;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Collections.nCopies;
 import static java.util.stream.Collectors.partitioningBy;
 import static org.objectweb.asm.Opcodes.*;
 
 final class CodeGen {
+
+  private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
 
   private static void ldcUndefined(MethodVisitor mv) {
     mv.visitLdcInsn(new ConstantDynamic("undefined", "Ljava/lang/Object;", BSM_UNDEFINED));
@@ -156,7 +163,7 @@ final class CodeGen {
 
     MethodHandle mh;
     try {
-      mh = MethodHandles.lookup().findStatic(type, name, methodType);
+      mh = LOOKUP.findStatic(type, name, methodType);
     } catch (NoSuchMethodException | IllegalAccessException e) {
       throw new AssertionError(e);
     }
@@ -174,6 +181,7 @@ final class CodeGen {
     init.visitVarInsn(ALOAD, 0);
     init.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
 
+    JSFunction constructor = null;
     var methods = new ArrayList<JSFunction>();
     for(var member : astClass.getBody()) {
       switch (member) {
@@ -195,7 +203,14 @@ final class CodeGen {
           var function = new JSFunction(name, () -> createFunctionMH(name, parameters, body, captureCount, dataMap, global));
           methods.add(function);
         }
-        case Swc4jAstAutoAccessor _, Swc4jAstConstructor _, Swc4jAstEmptyStmt _,
+        case Swc4jAstConstructor astConstructor -> {
+          var parameters = parameterOrProps(astConstructor.getParams());
+          var body = astConstructor.getBody().orElseThrow();  // FIXME
+          // eager creation
+          var mh = createFunctionMH("constructor", parameters, body, captureCount, dataMap, global);
+          constructor = new JSFunction("constructor", mh);
+        }
+        case Swc4jAstAutoAccessor _, Swc4jAstEmptyStmt _,
              Swc4jAstPrivateMethod _, Swc4jAstPrivateProp _, Swc4jAstStaticBlock _, Swc4jAstTsIndexSignature _ -> {
           throw new UnsupportedOperationException("unsupported member " + member);
         }
@@ -221,11 +236,22 @@ final class CodeGen {
 
     MethodHandle mh;
     try {
-      mh = MethodHandles.lookup().findConstructor(type, methodType(void.class));
+      mh = LOOKUP.findConstructor(type, methodType(void.class));
     } catch (NoSuchMethodException | IllegalAccessException e) {
       throw new AssertionError(e);
     }
+
+    if (constructor != null) {  // call the constructor after creation
+      // FIXME, should set the constructor as a field of the JSFunction
+      var cons = constructor.methodHandle();
+      cons = cons.asType(cons.type().changeReturnType(void.class).changeParameterType(0, type));
+      var identity = dropArguments(identity(type), 1, nCopies(cons.type().parameterCount() - 1, Object.class));
+      var newFunction = foldArguments(identity, cons);
+      mh = foldArguments(newFunction, mh);
+    }
+
     mh = dropArguments(mh, 0, Object.class);
+
     return mh;
   }
 
@@ -274,12 +300,21 @@ final class CodeGen {
     };
   }
 
+  private static List<String> parameterOrProps(List<ISwc4jAstParamOrTsParamProp> params) {
+    return params.stream()
+        .map(p -> switch (p) {
+          case Swc4jAstParam param -> name(param);
+          case Swc4jAstTsParamProp _ -> throw new UnsupportedOperationException("TODO");
+          default -> throw new AssertionError();
+        })
+        .toList();
+  }
   private static List<String> parameters(List<Swc4jAstParam> params) {
     return params.stream()
         .map(CodeGen::name)
         .toList();
   }
-  private static List<String> arrowParameters(List<ISwc4jAstPat> params) {
+  private static List<String> parameterOrPatterns(List<ISwc4jAstPat> params) {
     return params.stream()
         .map(CodeGen::name)
         .toList();
@@ -382,7 +417,7 @@ final class CodeGen {
         }
         case Swc4jAstArrowExpr arrowExpr -> {
           checkFunctionSupported(arrowExpr);
-          var parameters = arrowParameters(arrowExpr.getParams());
+          var parameters = parameterOrPatterns(arrowExpr.getParams());
           var body = arrowExpr.getBody();
           var newCtx = ctx.newCaptureContext();
           newCtx.varDef("this");
@@ -721,7 +756,7 @@ final class CodeGen {
       }
       case Swc4jAstArrowExpr arrowExpr -> {
         var captures = captureInfo(arrowExpr).captures();
-        var parameters = arrowParameters(arrowExpr.getParams());
+        var parameters = parameterOrPatterns(arrowExpr.getParams());
         var body = switch (arrowExpr.getBody()) {
           case Swc4jAstBlockStmt stmt -> stmt;
           case ISwc4jAstExpr expr -> new Swc4jAstReturnStmt(expr, expr.getSpan());

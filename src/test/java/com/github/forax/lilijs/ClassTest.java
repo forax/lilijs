@@ -291,8 +291,8 @@ public class ClassTest {
     assertEquals("Hello, default!\n", result);
   }
 
-  @Test @Disabled
-  public void testBasicClassCreation() {
+  @Test
+  public void testConstructorClassCreation() {
     var result = execute("""
         class Person {
             name: string;
@@ -304,7 +304,7 @@ public class ClassTest {
             }
         
             describe(): string {
-                return `${this.name} is ${this.age} years old`;
+                return this.name + " is " + this.age + " years old";
             }
         }
         
@@ -352,36 +352,36 @@ public class ClassTest {
     assertEquals("AND: false\nOR: true\nNOT: false\nAND: true\n", result);
   }
 
-  @Test @Disabled
+  @Test
   public void testNumberOperations() {
     var result = execute("""
         class Vector {
             x: number;
             y: number;
-            
+
             constructor(x: number, y: number) {
                 this.x = x;
                 this.y = y;
             }
-            
+
             add(other: Vector): Vector {
                 return new Vector(this.x + other.x, this.y + other.y);
             }
-            
-            magnitude(): number {
-                return Math.sqrt(this.x * this.x + this.y * this.y);
+
+            magnitudeSquare(): number {
+                return this.x * this.x + this.y * this.y;
             }
         }
-        
+
         let v1 = new Vector(3, 4);
         let v2 = new Vector(1, 2);
         let v3 = v1.add(v2);
-        
-        print(`v3: (${v3.x}, ${v3.y})`);
-        print(`Magnitude: ${v1.magnitude()}`);
+
+        print("v3: (" + v3.x + ", " + v3.y + ")");
+        print("Magnitude: " + v1.magnitudeSquare());
     """);
 
-    assertEquals("v3: (4, 6)\nMagnitude: 5\n", result);
+    assertEquals("v3: (4, 6)\nMagnitude: 25\n", result);
   }
 
   @Test @Disabled
