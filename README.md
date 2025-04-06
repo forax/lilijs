@@ -91,6 +91,7 @@ The project has just begun, I hope to finish most of it in one year.
 
 - [x] local variables
 - [x] function, local function, arrow function and calls
+- [ ] optional parameter, default parameter
 - [x] basic numeric ops
 - [x] basic control flow
 - [ ] compound operations +=, -=, &=, etc
@@ -99,8 +100,8 @@ The project has just begun, I hope to finish most of it in one year.
 - [ ] switch
 - [ ] && and ||
 - [ ] destructuring
-- [ ] function default parameters
-- [ ] class
+- [x] class
+- [ ] local class, class with captured values
 - [ ] private properties
 - [ ] static method and static block
 - [ ] typeof
