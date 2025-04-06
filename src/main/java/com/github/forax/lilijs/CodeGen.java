@@ -53,7 +53,6 @@ import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstProgram;
 
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstPropName;
 import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAstTsType;
-import com.caoccao.javet.swc4j.ast.pat.Swc4jAstArrayPat;
 import com.caoccao.javet.swc4j.ast.pat.Swc4jAstBindingIdent;
 import com.caoccao.javet.swc4j.ast.pat.Swc4jAstObjectPat;
 import com.caoccao.javet.swc4j.ast.pat.Swc4jAstRestPat;
@@ -172,7 +171,7 @@ final class CodeGen {
   }
 
   static MethodHandle createClassFunctionMH(String className, Swc4jAstClass astClass, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
-    var cv = new ClassWriter(/*ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES*/ 0);
+    var cv = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
     cv.visit(V21, ACC_PUBLIC | ACC_SUPER, className, null, "java/lang/Object", null);
     cv.visitSource("script", null);
 
@@ -219,7 +218,7 @@ final class CodeGen {
     }
 
     init.visitInsn(RETURN);
-    init.visitMaxs(2, 1);
+    init.visitMaxs(-1, -1);
     init.visitEnd();
 
     var instrs = cv.toByteArray();
@@ -369,7 +368,7 @@ final class CodeGen {
                   analyzeFunction(false, parameters, body);
                 }
               }
-              case Swc4jAstClassDecl classDecl -> {
+              case Swc4jAstClassDecl _ -> {
                 // do not visit top level class declarations if there are initialized lazily
               }
               default -> visitVar(node, ctx);
@@ -398,7 +397,7 @@ final class CodeGen {
           }
         }
         case Swc4jAstFnDecl fnDecl -> {
-          // only non-toplevel function are visited
+          // only non-toplevel function are visited here
           checkFunctionSupported(fnDecl.getFunction());
           var name = fnDecl.getIdent().getSym();
           var index = ctx.varDef(name); // will be stored in a local variable
@@ -441,17 +440,51 @@ final class CodeGen {
           throw new AssertionError();
         }
         case Swc4jAstClassDecl classDecl -> {
-          var name = name(classDecl.getIdent());
+          // only non-toplevel class are visited here
+          var name = classDecl.getIdent().getSym();
+          var index = ctx.varDef(name); // will be stored in a local variable
+          if (index == -1) {
+            throw new Failure("variable " + name + " already defined");
+          }
+          registerVarData(classDecl, new VarData.Local(index, ctx.captureInfo));
+
+          var classCtx = ctx.newCaptureContext();
           var clazz = classDecl.getClazz();
           for(var member : clazz.getBody()) {
             switch (member) {
-              case Swc4jAstClassProp _,  Swc4jAstClassMethod _ -> {
-                // ok
+              case Swc4jAstClassProp prop -> {
+                var value = prop.getValue();
+                if (value.isPresent()) {
+                  throw new UnsupportedOperationException("field initialization not supported yet");
+                }
+              }
+              case Swc4jAstClassMethod method -> {
+                checkFunctionSupported(method.getFunction());
+                var parameters = parameters(method.getFunction().getParams());
+                var bodyOpt = method.getFunction().getBody();
+                var newCtx = classCtx.newCaptureContext();
+                newCtx.varDef("this");
+                parameters.forEach(newCtx::varDef);
+                if (bodyOpt.isPresent()) {
+                  visitVar(bodyOpt.orElseThrow(), newCtx);
+                }
+                registerCaptureInfo(method, newCtx.captureInfo);
+              }
+              case Swc4jAstConstructor constructor -> {
+                var parameters = parameterOrProps(constructor.getParams());
+                var bodyOpt = constructor.getBody();
+                var newCtx = classCtx.newCaptureContext();
+                newCtx.varDef("this");
+                parameters.forEach(newCtx::varDef);
+                if (bodyOpt.isPresent()) {
+                  visitVar(bodyOpt.orElseThrow(), newCtx);
+                }
+                registerCaptureInfo(constructor, newCtx.captureInfo);
               }
               default -> throw new UnsupportedOperationException("TODO " + member);
             }
           }
-
+          registerCaptureInfo(clazz, classCtx.captureInfo);
         }
         case Swc4jAstVarDecl varDecl -> {
           switch (varDecl.getKind()) {
@@ -494,7 +527,7 @@ final class CodeGen {
               }
             }
             case Swc4jAstMemberExpr memberExpr -> {  // field write
-              var name = name(memberExpr.getProp());
+              var _ = name(memberExpr.getProp());
               visitVar(memberExpr.getObj(), ctx);
             }
             default -> throw new UnsupportedOperationException("unsupported " + left);
@@ -661,8 +694,8 @@ final class CodeGen {
     mv.visitLineNumber(line, label);
   }
 
-  private void emitFonctionCreation(String name, List<String> parameters, ISwc4jAst body, boolean toplevel, List<Integer> captures) {
-    var functionInfo = new Dict.Info(toplevel, name, parameters, body, toplevel ? null : dataMap);
+  private void emitFonctionCreation(String name, List<String> parameters, ISwc4jAst bodyOrClass, boolean toplevel, List<Integer> captures) {
+    var functionInfo = new Dict.Info(toplevel, name, parameters, bodyOrClass, toplevel ? null : dataMap);
     var infoId = dict.encodeInfo(functionInfo);
     if (captures.isEmpty()) {
       mv.visitLdcInsn(new ConstantDynamic(name, "Ljava/lang/Object;", BSM_FNDECL, infoId));

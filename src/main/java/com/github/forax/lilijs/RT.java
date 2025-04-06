@@ -18,7 +18,6 @@ import static java.lang.invoke.MethodHandles.exactInvoker;
 import static java.lang.invoke.MethodHandles.foldArguments;
 import static java.lang.invoke.MethodHandles.guardWithTest;
 import static java.lang.invoke.MethodHandles.insertArguments;
-import static java.lang.invoke.MethodHandles.invoker;
 import static java.lang.invoke.MethodHandles.lookup;
 import static java.lang.invoke.MethodType.methodType;
 
@@ -252,7 +251,7 @@ public final class RT {
     var name = info.name();
     var toplevel = info.toplevel();
     var parameters = info.parameters();
-    var body = info.body();
+    var body = info.bodyOrClass();
     var dataMap = info.dataMap();
     var captureCount = typeDescriptor instanceof MethodType type ? type.parameterCount() : 0;
     MethodHandleProvider provider = body instanceof Swc4jAstClass astClass ?

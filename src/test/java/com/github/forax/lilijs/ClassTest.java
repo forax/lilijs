@@ -35,6 +35,198 @@ public class ClassTest {
   }
 
   @Test
+  public void localClass() {
+    var result = execute("""
+        function f() {
+          class LocalClass {
+            x;
+
+            constructor(x) {
+              this.x = x;
+            }
+          }
+
+          let obj = new LocalClass(42);
+          print(obj.x);
+        }
+
+        f();
+        """);
+    assertEquals("42\n", result);
+  }
+
+  @Test
+  public void classInIfStatement() {
+    var result = execute("""
+      function f(condition) {
+        if (condition) {
+          class ConditionalClass {
+            method() { return "condition true"; }
+          }
+          let obj = new ConditionalClass();
+          print(obj.method());
+        } else {
+          class ConditionalClass {
+            method() { return "condition false"; }
+          }
+          let obj = new ConditionalClass();
+          print(obj.method());
+        }
+      }
+      
+      f(true);
+      f(false);
+      """);
+    assertEquals("condition true\ncondition false\n", result);
+  }
+
+  @Test @Disabled
+  public void classInIfElseExpression() {
+    var result = execute("""
+      function f(condition) {
+          return (condition ?
+            new class ConditionalClass {
+              method() { return "condition true"; }
+            } :
+            new class ConditionalClass {
+              method() { return "condition false"; }
+            }).method();
+      }
+      
+      f(true);
+      f(false);
+      """);
+    assertEquals("condition true\ncondition false\n", result);
+  }
+
+  @Test @Disabled  // FIXME, loop index and LoopClass seems to use the same index
+  public void classInForLoop() {
+    var result = execute("""
+      function loopClasses() {
+        for (let i = 0; i < 3; i++) {
+          class LoopClass {
+            val;
+
+            constructor(val) {
+              this.val = val;
+            }
+ 
+            getValue() {
+              return this.val;
+            }
+          }
+
+          let instance = new LoopClass(i);
+          print(instance.getValue());
+        }
+      }
+      
+      loopClasses();
+      """);
+    assertEquals("0\n1\n2\n", result);
+  }
+
+  @Test
+  public void nestedClassInMethod() {
+    var result = execute("""
+      class Outer {
+        method() {
+          class Inner {
+            innerMethod() {
+              return "inner method called";
+            }
+          }
+
+          return new Inner();
+        }
+      }
+      
+      let outer = new Outer();
+      let inner = outer.method();
+      print(inner.innerMethod());
+      """);
+    assertEquals("inner method called\n", result);
+  }
+
+  @Test @Disabled
+  public void classInSwitchCase() {
+    var result = execute("""
+      function testSwitch(value) {
+        switch(value) {
+          case 1:
+            class SwitchClass {
+              getValue() { return "case 1"; }
+            }
+            let obj = new SwitchClass();
+            print(obj.getValue());
+            break;
+          case 2:
+            class SwitchClass {
+              getValue() { return "case 2"; }
+            }
+            let obj = new SwitchClass();
+            print(obj.getValue());
+            break;
+        }
+      }
+      
+      testSwitch(1);
+      testSwitch(2);
+      """);
+    assertEquals("case 1\ncase 2\n", result);
+  }
+
+  @Test @Disabled
+  public void classWithExtends() {
+    var result = execute("""
+      function createClasses() {
+        class Parent {
+          parentMethod() {
+            return "parent method";
+          }
+        }
+
+        class Child extends Parent {
+          childMethod() {
+            return "child method";
+          }
+        }
+
+        let child = new Child();
+        print(child.parentMethod());
+        print(child.childMethod());
+      }
+      
+      createClasses();
+      """);
+    assertEquals("parent method\nchild method\n", result);
+  }
+
+  @Test @Disabled
+  public void classWithStaticMethods() {
+    var result = execute("""
+      function testStatic() {
+        class StaticClass {
+          static staticMethod() {
+            return "static method";
+          }
+
+          instanceMethod() {
+            return "instance method";
+          }
+        }
+        
+        print(StaticClass.staticMethod());
+        let instance = new StaticClass();
+        print(instance.instanceMethod());
+      }
+      
+      testStatic();
+      """);
+    assertEquals("static method\ninstance method\n", result);
+  }
+
+  @Test
   public void testClassPropertyAssignment() {
     var result = execute("""
         class User {
@@ -715,11 +907,11 @@ public class ClassTest {
                 this.optional = optional;
             }
         
-            describe() {
+            describe(): string {
                 if (this.optional) {
-                    return `${this.required} (${this.optional})`;
+                    return this.required + " " + this.optional;
                 } else {
-                    return this.required;
+                    return "" + this.required;
                 }
             }
         }

@@ -15,15 +15,15 @@ final class Dict {
   private final HashMap<Integer, Info> infoMap = new HashMap<>();
 
   record Info(boolean toplevel,
-              String name, List<String> parameters, ISwc4jAst body,
+              String name, List<String> parameters, ISwc4jAst bodyOrClass,
               HashMap<ISwc4jAst, Object> dataMap) {
     Info {
       requireNonNull(name);
       requireNonNull(parameters);
-      requireNonNull(body);
-      assert body instanceof Swc4jAstClass ||
-             body instanceof Swc4jAstBlockStmt ||
-             body instanceof Swc4jAstReturnStmt;
+      requireNonNull(bodyOrClass);
+      assert bodyOrClass instanceof Swc4jAstClass ||
+             bodyOrClass instanceof Swc4jAstBlockStmt ||
+             bodyOrClass instanceof Swc4jAstReturnStmt;
       // dataMap can be null
     }
   }

@@ -57,16 +57,16 @@ class Builtin {
 
   private static void checkOperandIsNumber(Class<?> type) {
     if (!(Number.class.isAssignableFrom(type))) {
-      throw new Failure("operand is not a number");
+      throw new Failure("operand is not a number: " + type.getSimpleName());
     }
   }
 
   private static void checkOperandsAreNumbers(Class<?> type1, Class<?> type2) {
     if (!(Number.class.isAssignableFrom(type1))) {
-      throw new Failure("left operand is not a number");
+      throw new Failure("left operand is not a number: " + type1.getSimpleName());
     }
     if (!(Number.class.isAssignableFrom(type2))) {
-      throw new Failure("right operand is not a number");
+      throw new Failure("right operand is not a number: " + type2.getSimpleName());
     }
   }
 
