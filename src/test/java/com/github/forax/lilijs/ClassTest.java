@@ -80,7 +80,22 @@ public class ClassTest {
     assertEquals("condition true\ncondition false\n", result);
   }
 
-  @Test @Disabled
+
+  @Test
+  public void classExpression() {
+    var result = execute("""
+      let c = class {
+        m() {
+          print("hello");
+        }
+      }
+      let v = new c;
+      v.m();
+      """);
+    assertEquals("hello\n", result);
+  }
+
+  @Test
   public void classInIfElseExpression() {
     var result = execute("""
       function f(condition) {
@@ -93,8 +108,8 @@ public class ClassTest {
             }).method();
       }
       
-      f(true);
-      f(false);
+      print(f(true));
+      print(f(false));
       """);
     assertEquals("condition true\ncondition false\n", result);
   }

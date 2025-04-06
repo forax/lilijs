@@ -448,9 +448,14 @@ final class CodeGen {
           }
           registerVarData(classDecl, new VarData.Local(index, ctx.captureInfo));
 
+          visitVar(classDecl.getClazz(), ctx);
+        }
+        case Swc4jAstClassExpr classExpr -> {
+          visitVar(classExpr.getClazz(), ctx);
+        }
+        case Swc4jAstClass astClass -> {
           var classCtx = ctx.newCaptureContext();
-          var clazz = classDecl.getClazz();
-          for(var member : clazz.getBody()) {
+          for(var member : astClass.getBody()) {
             switch (member) {
               case Swc4jAstClassProp prop -> {
                 var value = prop.getValue();
@@ -484,8 +489,9 @@ final class CodeGen {
               default -> throw new UnsupportedOperationException("TODO " + member);
             }
           }
-          registerCaptureInfo(clazz, classCtx.captureInfo);
+          registerCaptureInfo(astClass, classCtx.captureInfo);
         }
+
         case Swc4jAstVarDecl varDecl -> {
           switch (varDecl.getKind()) {
             case Var -> throw new UnsupportedOperationException("declaration using var is not supported");
@@ -626,7 +632,7 @@ final class CodeGen {
              Swc4jAstForInStmt _, Swc4jAstForOfStmt _,
              Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
              Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
-             Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
+             Swc4jAstAwaitExpr _,
              Swc4jAstMetaPropExpr _, Swc4jAstOptChainExpr _,
              Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _, Swc4jAstYieldExpr _,
              Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _ -> {
@@ -818,6 +824,11 @@ final class CodeGen {
           var varIndex = varIndex(classDecl);
           mv.visitVarInsn(ASTORE, varIndex);
         }
+      }
+      case Swc4jAstClassExpr classExpr -> {
+        var name = classExpr.getIdent().map(CodeGen::name).orElse("anonymous");
+        var captures = captureInfo(classExpr.getClazz()).captures();
+        emitFonctionCreation(name, List.of(), classExpr.getClazz(), false, captures);
       }
       case Swc4jAstNewExpr newExpr -> {
         visitCode(newExpr.getCallee());
@@ -1039,7 +1050,7 @@ final class CodeGen {
            Swc4jAstForInStmt _, Swc4jAstForOfStmt _,
            Swc4jAstSwitchStmt _, Swc4jAstThrowStmt _,
            Swc4jAstTryStmt _, Swc4jAstUsingDecl _, Swc4jAstWithStmt _,
-           Swc4jAstAwaitExpr _, Swc4jAstClassExpr _,
+           Swc4jAstAwaitExpr _,
            Swc4jAstMetaPropExpr _, Swc4jAstOptChainExpr _,
            Swc4jAstSpreadElement _, Swc4jAstSuperPropExpr _, Swc4jAstYieldExpr _,
            Swc4jAstArrayLit _, Swc4jAstBigInt _, Swc4jAstObjectLit _, Swc4jAstRegex _
