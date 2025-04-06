@@ -65,7 +65,7 @@ final class VarContext {
   }
 
   public VarContext newLocalContext() {
-    return new VarContext(captureInfo, localMap.size(), this);
+    return new VarContext(captureInfo, localCount, this);
   }
 
   private void debug() {
