@@ -99,7 +99,7 @@ public class ClassTest {
     assertEquals("condition true\ncondition false\n", result);
   }
 
-  @Test @Disabled  // FIXME, loop index and LoopClass seems to use the same index
+  @Test
   public void classInForLoop() {
     var result = execute("""
       function loopClasses() {
