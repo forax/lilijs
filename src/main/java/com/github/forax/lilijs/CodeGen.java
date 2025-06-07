@@ -120,38 +120,67 @@ final class CodeGen {
     mv.visitLdcInsn(new ConstantDynamic("undefined", "Ljava/lang/Object;", BSM_UNDEFINED));
   }
 
-  static VarAnalyzer analyzeFunction(boolean lazy, List<String> parameters, ISwc4jAst body) {
+  static void analyzeFunction(boolean lazy, List<String> parameters, ISwc4jAst body, DataMap dataMap) {
     var ctx = new VarContext();
     ctx.varDef("this");
     for (String parameter : parameters) {
       ctx.varDef(parameter);
     }
-    var varAnalyzer = new VarAnalyzer(lazy);
+    var varAnalyzer = new VarAnalyzer(lazy, dataMap);
     varAnalyzer.visitVar(body, ctx);
-    return varAnalyzer;
   }
 
-  static MethodHandle createFunctionMH(String name, List<String> parameters, ISwc4jAst body, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
-    // do we need to do a data analysis ?
-    if (dataMap == null) {
-      var varAnalyzer = analyzeFunction(true, parameters, body);
-      dataMap = varAnalyzer.dataMap;
-    }
+  static byte[] compile(String className, ISwc4jAst program) {
+    var dataMap = new DataMap();
+    analyzeFunction(false, List.of("this"), program, dataMap);
 
     var cv = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-    cv.visit(V21, ACC_PUBLIC | ACC_SUPER, "script", null, "java/lang/Object", null);
-    cv.visitSource("script", null);
+    cv.visit(V21, ACC_PUBLIC | ACC_SUPER, className, null, "java/lang/Object", null);
+    cv.visitSource(className, null);
 
+    var dict = new Dict();
+    genFunction(cv, "main", List.of("this"), program, 0, dataMap, dict);
+
+    for(var info : dict.infos()) {
+      var toplevel = info.toplevel();
+      var bodyOrClass = info.bodyOrClass();
+      if (!toplevel || bodyOrClass instanceof Swc4jAstClass) {
+        throw new UnsupportedOperationException("only top level functions are supported for now");
+      }
+      var name = info.name();
+      var parameters = info.parameters();
+      genFunction(cv, name, parameters, bodyOrClass, 0, dataMap, new Dict() /* FIXME */);
+    }
+    cv.visitEnd();
+    var instrs = cv.toByteArray();
+    dumpBytecode(instrs);
+    return instrs;
+  }
+
+  private static void genFunction(ClassWriter cv, String name, List<String> parameters, ISwc4jAst body, int captureCount, DataMap dataMap, Dict dict) {
     var methodType = genericMethodType(1 + captureCount + parameters.size());
     var desc = methodType.toMethodDescriptorString();
     var mv = cv.visitMethod(ACC_PUBLIC | ACC_STATIC, name, desc, null, null);
     mv.visitCode();
-    var dict = new Dict();
     new CodeGen(mv, dict, dataMap).visitCode(body);
     ldcUndefined(mv);
     mv.visitInsn(ARETURN);
     mv.visitMaxs(0, 0);
     mv.visitEnd();
+  }
+
+  static MethodHandle createFunctionMH(String name, List<String> parameters, ISwc4jAst body, int captureCount, DataMap dataMap, JSObject global) {
+    // do we need to do a data analysis ?
+    if (dataMap == null) {
+      dataMap = new DataMap();
+      analyzeFunction(true, parameters, body, dataMap);
+    }
+
+    var cv = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+    cv.visit(V21, ACC_PUBLIC | ACC_SUPER, "script", null, "java/lang/Object", null);
+    cv.visitSource("script", null);
+    var dict = new Dict();
+    genFunction(cv, name, parameters, body, captureCount, dataMap, dict);
 
     cv.visitEnd();
     var instrs = cv.toByteArray();
@@ -160,17 +189,17 @@ final class CodeGen {
     var classLoader = new IsolateClassLoader(dict, global);
     var type = classLoader.createClass("script", instrs);
 
+    var methodType = genericMethodType(1 + captureCount + parameters.size());
     MethodHandle mh;
     try {
       mh = LOOKUP.findStatic(type, name, methodType);
     } catch (NoSuchMethodException | IllegalAccessException e) {
       throw new AssertionError(e);
     }
-
     return mh;
   }
 
-  static MethodHandle createClassFunctionMH(String className, Swc4jAstClass astClass, int captureCount, HashMap<ISwc4jAst, Object> dataMap, JSObject global) {
+  static MethodHandle createClassFunctionMH(String className, Swc4jAstClass astClass, int captureCount, DataMap dataMap, JSObject global) {
     var cv = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
     cv.visit(V21, ACC_PUBLIC | ACC_SUPER, className, null, "java/lang/Object", null);
     cv.visitSource("script", null);
@@ -336,20 +365,33 @@ final class CodeGen {
     }
   }
 
-  private static final class VarAnalyzer {
-    private final boolean lazy;
+  static final class DataMap {
     private final HashMap<ISwc4jAst, Object> dataMap = new HashMap<>();
 
-    public VarAnalyzer(boolean lazy) {
-      this.lazy = lazy;
-    }
-
-    private void registerVarData(ISwc4jAst ast, VarData varData) {
+    public void registerVarData(ISwc4jAst ast, VarData varData) {
       dataMap.put(ast, varData);
     }
 
-    private void registerCaptureInfo(ISwc4jAst ast, VarContext.CaptureInfo captureInfo) {
+    public VarData getVarData(ISwc4jAst ast) {
+      return (VarData) dataMap.get(ast);
+    }
+
+    public void registerCaptureInfo(ISwc4jAst ast, VarContext.CaptureInfo captureInfo) {
       dataMap.put(ast, captureInfo);
+    }
+
+    public VarContext.CaptureInfo getCaptureInfo(ISwc4jAst ast) {
+      return (VarContext.CaptureInfo) dataMap.get(ast);
+    }
+  }
+
+  private static final class VarAnalyzer {
+    private final boolean lazy;
+    private final DataMap dataMap;
+
+    public VarAnalyzer(boolean lazy, DataMap dataMap) {
+      this.lazy = lazy;
+      this.dataMap = dataMap;
     }
 
     private void visitVar(ISwc4jAst ast, VarContext ctx) {
@@ -365,11 +407,14 @@ final class CodeGen {
                 if (!lazy) {
                   var parameters = parameters(fnDecl.getFunction().getParams());
                   var body = fnDecl.getFunction().getBody().orElseThrow();
-                  analyzeFunction(false, parameters, body);
+                  analyzeFunction(false, parameters, body, dataMap);
                 }
               }
-              case Swc4jAstClassDecl _ -> {
+              case Swc4jAstClassDecl classDecl -> {
                 // do not visit top level class declarations if there are initialized lazily
+                if (!lazy) {
+                  visitVar(classDecl, ctx);
+                }
               }
               default -> visitVar(node, ctx);
             }
@@ -404,7 +449,7 @@ final class CodeGen {
           if (index == -1) {
             throw new Failure("variable " + name + " already defined");
           }
-          registerVarData(fnDecl, new VarData.Local(index, ctx.captureInfo));
+          dataMap.registerVarData(fnDecl, new VarData.Local(index, ctx.captureInfo));
 
           var parameters = parameters(fnDecl.getFunction().getParams());
           var body = fnDecl.getFunction().getBody().orElseThrow();
@@ -412,7 +457,7 @@ final class CodeGen {
           newCtx.localCount++;   // "this" should be captured, function still has a first parameter
           parameters.forEach(newCtx::varDef);
           visitVar(body, newCtx);
-          registerCaptureInfo(fnDecl.getFunction(), newCtx.captureInfo);
+          dataMap.registerCaptureInfo(fnDecl.getFunction(), newCtx.captureInfo);
         }
         case Swc4jAstArrowExpr arrowExpr -> {
           checkFunctionSupported(arrowExpr);
@@ -422,7 +467,7 @@ final class CodeGen {
           newCtx.varDef("this");
           parameters.forEach(newCtx::varDef);
           visitVar(body, newCtx);
-          registerCaptureInfo(arrowExpr, newCtx.captureInfo);
+          dataMap.registerCaptureInfo(arrowExpr, newCtx.captureInfo);
         }
         case Swc4jAstFnExpr fnExpr -> {
           checkFunctionSupported(fnExpr.getFunction());
@@ -434,7 +479,7 @@ final class CodeGen {
           if (bodyOpt.isPresent()) {
             visitVar(bodyOpt.orElseThrow(), newCtx);
           }
-          registerCaptureInfo(fnExpr, newCtx.captureInfo);
+          dataMap.registerCaptureInfo(fnExpr, newCtx.captureInfo);
         }
         case Swc4jAstFunction _ -> {
           throw new AssertionError();
@@ -446,7 +491,7 @@ final class CodeGen {
           if (index == -1) {
             throw new Failure("variable " + name + " already defined");
           }
-          registerVarData(classDecl, new VarData.Local(index, ctx.captureInfo));
+          dataMap.registerVarData(classDecl, new VarData.Local(index, ctx.captureInfo));
 
           visitVar(classDecl.getClazz(), ctx);
         }
@@ -473,7 +518,7 @@ final class CodeGen {
                 if (bodyOpt.isPresent()) {
                   visitVar(bodyOpt.orElseThrow(), newCtx);
                 }
-                registerCaptureInfo(method, newCtx.captureInfo);
+                dataMap.registerCaptureInfo(method, newCtx.captureInfo);
               }
               case Swc4jAstConstructor constructor -> {
                 var parameters = parameterOrProps(constructor.getParams());
@@ -484,12 +529,12 @@ final class CodeGen {
                 if (bodyOpt.isPresent()) {
                   visitVar(bodyOpt.orElseThrow(), newCtx);
                 }
-                registerCaptureInfo(constructor, newCtx.captureInfo);
+                dataMap.registerCaptureInfo(constructor, newCtx.captureInfo);
               }
               default -> throw new UnsupportedOperationException("TODO " + member);
             }
           }
-          registerCaptureInfo(astClass, classCtx.captureInfo);
+          dataMap.registerCaptureInfo(astClass, classCtx.captureInfo);
         }
 
         case Swc4jAstVarDecl varDecl -> {
@@ -517,7 +562,7 @@ final class CodeGen {
           if (index == -1) {
             throw new Failure("variable " + name + " already defined");
           }
-          registerVarData(varDeclarator, new VarData.Local(index, ctx.captureInfo));
+          dataMap.registerVarData(varDeclarator, new VarData.Local(index, ctx.captureInfo));
         }
         case Swc4jAstAssignExpr assignExpr -> {
           visitVar(assignExpr.getRight(), ctx);
@@ -527,7 +572,7 @@ final class CodeGen {
               var name = name(ident);
               var varData = ctx.varUse(name);
               switch (varData) {
-                case VarData.Local _ -> registerVarData(assignExpr, varData);
+                case VarData.Local _ -> dataMap.registerVarData(assignExpr, varData);
                 case VarData.Capture _ -> throw new UnsupportedOperationException("can not assign a captured value " + name);
                 case VarData.Global _ -> throw new Failure("unknown local variable " + name);
               }
@@ -543,7 +588,7 @@ final class CodeGen {
           var name = name(updateExpr.getArg());
           var varData = ctx.varUse(name);
           switch (varData) {
-            case VarData.Local _ -> registerVarData(updateExpr, varData);
+            case VarData.Local _ -> dataMap.registerVarData(updateExpr, varData);
             case VarData.Capture _ -> throw new UnsupportedOperationException("can not assign a captured value " + name);
             case VarData.Global _ -> throw new Failure("unknown local variable " + name);
           }
@@ -564,12 +609,12 @@ final class CodeGen {
         case Swc4jAstIdent ident -> {
           var name = ident.getSym();
           var varData = ctx.varUse(name);
-          registerVarData(ident, varData);
+          dataMap.registerVarData(ident, varData);
         }
         case Swc4jAstIdentName identName -> {
           var name = identName.getSym();
           var varData = ctx.varUse(name);
-          registerVarData(identName, varData);
+          dataMap.registerVarData(identName, varData);
         }
         case Swc4jAstMemberExpr memberExpr -> {
           visitVar(memberExpr.getObj(), ctx);
@@ -585,7 +630,7 @@ final class CodeGen {
         }
         case Swc4jAstThisExpr thisExpr -> {
           var varData = ctx.varUse("this");  // not needed
-          registerVarData(thisExpr, varData);
+          dataMap.registerVarData(thisExpr, varData);
         }
         case Swc4jAstIfStmt ifStmt -> {
           visitVar(ifStmt.getTest(), ctx);
@@ -675,22 +720,16 @@ final class CodeGen {
 
   private final MethodVisitor mv;
   private final Dict dict;
-  private final HashMap<ISwc4jAst, Object> dataMap;
+  private final DataMap dataMap;
 
   private int varIndex(ISwc4jAst ast) {
-    var varIndex = (VarData) dataMap.remove(ast);
-    assert varIndex != null;
-    return switch (varIndex) {
+    var varData = dataMap.getVarData(ast);
+    assert varData != null : "invalid varData for " + ast;
+    return switch (varData) {
       case VarData.Global _ -> -1;
       case VarData.Capture(int index) -> index;
       case VarData.Local(int index, VarContext.CaptureInfo captureInfo) -> captureInfo.captures().size() + index;
     };
-  }
-
-  private VarContext.CaptureInfo captureInfo(ISwc4jAst ast) {
-    var captureInfo = (VarContext.CaptureInfo) dataMap.remove(ast);
-    assert captureInfo != null;
-    return captureInfo;
   }
 
   private void emitLine(ISwc4jAst node) {
@@ -714,7 +753,7 @@ final class CodeGen {
     }
   }
 
-  CodeGen(MethodVisitor mv, Dict dict, HashMap<ISwc4jAst, Object> dataMap) {
+  CodeGen(MethodVisitor mv, Dict dict, DataMap dataMap) {
     this.mv = mv;
     this.dict = dict;
     this.dataMap = dataMap;
@@ -783,8 +822,9 @@ final class CodeGen {
         var name = fnDecl.getIdent().getSym();
         var parameters = parameters(fnDecl.getFunction().getParams());
         var body = fnDecl.getFunction().getBody().orElseThrow();  // FIXME ?
-        var toplevel = !dataMap.containsKey(fnDecl.getFunction());
-        var captures = toplevel ? List.<Integer>of() : captureInfo(fnDecl.getFunction()).captures();
+        var captureInfo = dataMap.getCaptureInfo(fnDecl.getFunction());
+        var toplevel = captureInfo == null;
+        var captures = toplevel ? List.<Integer>of() : captureInfo.captures();
         emitFonctionCreation(name, parameters, body, toplevel, captures);
         if (toplevel) {
           mv.visitInsn(POP);
@@ -794,7 +834,7 @@ final class CodeGen {
         }
       }
       case Swc4jAstArrowExpr arrowExpr -> {
-        var captures = captureInfo(arrowExpr).captures();
+        var captures = dataMap.getCaptureInfo(arrowExpr).captures();
         var parameters = parameterOrPatterns(arrowExpr.getParams());
         var body = switch (arrowExpr.getBody()) {
           case Swc4jAstBlockStmt stmt -> stmt;
@@ -804,7 +844,7 @@ final class CodeGen {
         emitFonctionCreation("anonymous", parameters, body, false, captures);
       }
       case Swc4jAstFnExpr fnExpr -> {
-        var captures = captureInfo(fnExpr).captures();
+        var captures = dataMap.getCaptureInfo(fnExpr).captures();
         var name = fnExpr.getIdent().map(Swc4jAstIdent::getSym).orElse("anonymous");
         var parameters = parameters(fnExpr.getFunction().getParams());
         var body = fnExpr.getFunction().getBody().orElseThrow();  // FIXME ?
@@ -815,8 +855,9 @@ final class CodeGen {
       }
       case Swc4jAstClassDecl classDecl -> {
         var name = name(classDecl.getIdent());
-        var toplevel = !dataMap.containsKey(classDecl.getClazz());
-        var captures = toplevel ? List.<Integer>of() : captureInfo(classDecl.getClazz()).captures();
+        var captureInfo = dataMap.getCaptureInfo(classDecl.getClazz());
+        var toplevel = captureInfo == null;
+        var captures = toplevel ? List.<Integer>of() : captureInfo.captures();
         emitFonctionCreation(name, List.of(), classDecl.getClazz(), toplevel, captures);
         if (toplevel) {
           mv.visitInsn(POP);
@@ -827,7 +868,7 @@ final class CodeGen {
       }
       case Swc4jAstClassExpr classExpr -> {
         var name = classExpr.getIdent().map(CodeGen::name).orElse("anonymous");
-        var captures = captureInfo(classExpr.getClazz()).captures();
+        var captures = dataMap.getCaptureInfo(classExpr.getClazz()).captures();
         emitFonctionCreation(name, List.of(), classExpr.getClazz(), false, captures);
       }
       case Swc4jAstNewExpr newExpr -> {

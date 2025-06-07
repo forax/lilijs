@@ -5,6 +5,7 @@ import com.caoccao.javet.swc4j.ast.interfaces.ISwc4jAst;
 import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstBlockStmt;
 import com.caoccao.javet.swc4j.ast.stmt.Swc4jAstReturnStmt;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 
@@ -16,7 +17,7 @@ final class Dict {
 
   record Info(boolean toplevel,
               String name, List<String> parameters, ISwc4jAst bodyOrClass,
-              HashMap<ISwc4jAst, Object> dataMap) {
+              CodeGen.DataMap dataMap) {
     Info {
       requireNonNull(name);
       requireNonNull(parameters);
@@ -26,6 +27,10 @@ final class Dict {
              bodyOrClass instanceof Swc4jAstReturnStmt;
       // dataMap can be null
     }
+  }
+
+  public Collection<Info> infos() {
+    return infoMap.values();
   }
 
   public int encodeInfo(Info info) {

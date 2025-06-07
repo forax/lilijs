@@ -5,6 +5,6 @@ import java.util.List;
 public final class Linter {
   public static void lint(String code) {
     var program = Parser.parse(code);
-    CodeGen.analyzeFunction(false, List.of(), program);
+    CodeGen.analyzeFunction(false, List.of(), program, new CodeGen.DataMap());
   }
 }
